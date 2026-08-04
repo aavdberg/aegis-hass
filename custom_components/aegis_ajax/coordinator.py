@@ -529,10 +529,9 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if not space.hub_id or space.hub_id in seen_hubs:
                 continue
             seen_hubs.add(space.hub_id)
-            if space.hub_id not in self.sim_info:
-                sim = await self._hub_object_api.get_sim_info(space.hub_id)
-                if sim:
-                    self.sim_info[space.hub_id] = sim
+            sim = await self._hub_object_api.get_sim_info(space.hub_id)
+            if sim:
+                self.sim_info[space.hub_id] = sim
             fw = await self._hub_object_api.get_firmware_info(space.hub_id)
             if fw is None:
                 self.hub_firmware_updates.pop(space.hub_id, None)
