@@ -143,6 +143,33 @@ _TAMPER_SOURCE_KEYS: dict[str, str] = {
 # so a reporter on DEBUG can confirm the semantics on their own hardware.
 _HTS_TAMPER_CANDIDATE_KEYS: tuple[int, ...] = (0x04, 0x0F)
 
+# The device families the keys above are actually *routed* for (#406). They
+# are not a two-value tamper field everywhere, and reading them as one raises
+# a permanent phantom alarm on an intact device: a reporter's MotionProtect
+# holds `0x0f` at `01` across every probe cycle while the Ajax app shows no
+# lid or bracket problem and a physical remount changes nothing, and a
+# SpaceControl holds `0x04` at `80` the same way (#339, 244 consecutive
+# readings) — caught there only because `80` is not one of the two values the
+# routing acts on. So the routing is limited to the families where a capture
+# tied a key to a *physical* tamper, both from #339: a MotionProtect Curtain
+# flipping both keys `00` -> `01` on being pulled off its SmartBracket and
+# back on re-attach across three runs, and a Transmitter raising and clearing
+# the sensor when its enclosure was opened.
+#
+# Widen this per family, on a capture showing a key move with a physical
+# tamper. A family that merely reads `00` is not evidence: it shows the keys
+# are unset, not that a tamper would set them. The trade is deliberate — an
+# unlisted family misses an HTS-only tamper, which is the recoverable half;
+# the granular gRPC sources (`lid_opened`, `smart_bracket_unlocked`,
+# `case_drilling`) are untouched by this gate and still drive the sensor
+# wherever the hub reports them.
+_HTS_TAMPER_ROUTED_DEVICE_TYPES: frozenset[str] = frozenset(
+    {
+        "motion_protect_curtain",
+        "transmitter",
+    }
+)
+
 # Per-device *measurements* carried across a full device snapshot that omits
 # them (#403). `_handle_devices_snapshot` rebuilds each device from the snapshot,
 # so a reading the stream does not repeat is gone until that device next sends
@@ -1785,10 +1812,13 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         """Route the HTS case-tamper keys onto the shared `tamper` status (#339).
 
-        Either key reading `01` means tampered; both reading `00` means
-        intact. Any other value is ignored — only `00`/`01` were ever
-        observed, so a different byte means the key carries something else on
-        that firmware, and guessing would raise a phantom tamper alert.
+        Only for the families in `_HTS_TAMPER_ROUTED_DEVICE_TYPES` (#406) —
+        elsewhere the keys carry something else and the probe is the whole
+        contribution. Within those, either key reading `01` means tampered
+        and both reading `00` means intact. Any other value is ignored: only
+        `00`/`01` were ever observed on a family we route, so a different
+        byte means the key carries something else on that firmware, and
+        guessing would raise a phantom tamper alert.
 
         Clearing mirrors the gRPC delta path: `tamper` only goes away once no
         granular gRPC source (`lid_opened`, `smart_bracket_unlocked`,
@@ -1798,10 +1828,12 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         `_handle_devices_snapshot` carry it across a gRPC snapshot that has no
         tamper field to report.
 
-        The DEBUG line is deliberately unconditional on the values: on a hub
-        that carries this signal only over HTS, "candidates flip while the
+        The DEBUG line is deliberately unconditional on the values, and sits
+        ahead of the family gate so an unrouted family is still probed: on a
+        hub that carries this signal only over HTS, "candidates flip while the
         gRPC-sourced statuses stay silent" is exactly the evidence a reporter
-        needs to capture.
+        needs to capture — and a candidate that *doesn't* move is how #406 was
+        told apart from a real tamper.
         """
         from dataclasses import replace as dc_replace  # noqa: PLC0415
 
@@ -1815,6 +1847,8 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             {f"0x{key:02X}": value.hex() for key, value in present.items()},
             device.statuses.get("tamper"),
         )
+        if device.device_type not in _HTS_TAMPER_ROUTED_DEVICE_TYPES:
+            return
 
         states = [value == b"\x01" for value in present.values() if value in (b"\x00", b"\x01")]
         if not states:
