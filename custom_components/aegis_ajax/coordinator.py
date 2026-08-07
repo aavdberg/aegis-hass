@@ -339,6 +339,21 @@ def _describe_hts_epoch(value: bytes) -> str:
 # only what HTS itself raised.
 _HTS_CASE_TAMPER_KEY = "hts_case_tamper"
 
+
+def _without_hts_case_tamper(statuses: dict[str, Any]) -> dict[str, Any]:
+    """Strip the HTS case-tamper marker, and `tamper` with it when it was alone.
+
+    `tamper` is shared: the device stream sets it from `lid_opened`,
+    `smart_bracket_unlocked` or `case_drilling`. Dropping the HTS marker must
+    not cancel a tamper one of those is still reporting, so `tamper` only goes
+    when no granular source is left.
+    """
+    remaining = {k: v for k, v in statuses.items() if k != _HTS_CASE_TAMPER_KEY}
+    if not any(remaining.get(key) for key in _TAMPER_SOURCE_KEYS.values()):
+        remaining.pop("tamper", None)
+    return remaining
+
+
 # Mirror of `lock.LOCK_DEVICE_TYPES` (kept local to avoid a circular import
 # with the lock platform, which imports the coordinator). Used only by the
 # one-shot #206 Bug-B SmartLock id probe.
@@ -1848,6 +1863,13 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             device.statuses.get("tamper"),
         )
         if device.device_type not in _HTS_TAMPER_ROUTED_DEVICE_TYPES:
+            # Not routed — but an earlier version may have left an HTS-sourced
+            # tamper on this device, and `self.devices` is restored from a
+            # persisted cache, so it survives every restart. Withdrawing it here
+            # is the only way out: the branch below that normally clears it is
+            # the one this gate skips. Costs nothing on a clean device, which is
+            # every device on a fresh install.
+            self._withdraw_hts_case_tamper(device_id_hex, device)
             return
 
         states = [value == b"\x01" for value in present.values() if value in (b"\x00", b"\x01")]
@@ -1862,11 +1884,34 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             if not device.statuses.get(_HTS_CASE_TAMPER_KEY):
                 return  # intact, and no HTS-sourced tamper to withdraw
-            statuses = {k: v for k, v in device.statuses.items() if k != _HTS_CASE_TAMPER_KEY}
-            if not any(statuses.get(key) for key in _TAMPER_SOURCE_KEYS.values()):
-                statuses.pop("tamper", None)
+            statuses = _without_hts_case_tamper(device.statuses)
 
         self.devices[device_id_hex] = dc_replace(device, statuses=statuses)
+        self.async_set_updated_data({"spaces": self.spaces, "devices": self.devices})
+
+    def _withdraw_hts_case_tamper(self, device_id_hex: str, device: Device) -> None:
+        """Drop an HTS-sourced case tamper this build no longer stands behind.
+
+        Used when the device's family is not in `_HTS_TAMPER_ROUTED_DEVICE_TYPES`
+        but the stored statuses still carry the marker — an upgrade from a build
+        that routed every family (#406). Silent and non-churning when there is
+        nothing to withdraw, which is the normal case.
+
+        Runs on the event loop (HTS listen task).
+        """
+        from dataclasses import replace as dc_replace  # noqa: PLC0415
+
+        if not device.statuses.get(_HTS_CASE_TAMPER_KEY):
+            return
+        _LOGGER.debug(
+            "Withdrawing an HTS-sourced case tamper from device=%s type=%s: "
+            "this build does not read those keys as a tamper on that family (#406)",
+            device_id_hex,
+            device.device_type,
+        )
+        self.devices[device_id_hex] = dc_replace(
+            device, statuses=_without_hts_case_tamper(device.statuses)
+        )
         self.async_set_updated_data({"spaces": self.spaces, "devices": self.devices})
 
     def _maybe_apply_hts_device_temperature(
@@ -2310,9 +2355,16 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # field at all — so a fresh snapshot would drop the sensor back to
             # off until the next 60 s status refresh. Carry it forward; the HTS
             # `00` is what withdraws it.
+            #
+            # Only for families this build actually routes (#406). Devices are
+            # restored from a persisted cache, so an upgrade from a build that
+            # routed every family arrives with the marker already set — carrying
+            # that forward would re-raise, every snapshot, a tamper nothing can
+            # withdraw any more.
             if (
                 existing is not None
                 and existing.statuses.get(_HTS_CASE_TAMPER_KEY)
+                and device.device_type in _HTS_TAMPER_ROUTED_DEVICE_TYPES
                 and "tamper" not in device.statuses
             ):
                 from dataclasses import replace as dc_replace  # noqa: PLC0415
