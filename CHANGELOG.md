@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.16.0] - unreleased
+## [1.16.0] - 2026-08-08
+
+Consolidates the `1.16.0-beta.1` … `-beta.12` series.
 
 ### Added
 - **The hub firmware entity now shows the version your hub is actually running (#388).** Until now it only knew about updates Ajax had *queued*, with no "installed" side to compare against — which is why it could look uninformative, and why every hardware-specific bug report had to start by asking the reporter to read the version off the Ajax app by hand. The version turns out to ride the same hub status channel that already supplies ethernet, cellular and signal strength, rather than the cloud snapshot the entity was reading.
@@ -36,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **What it does not do is invent data.** A family being understood does not mean it reports anything: several carry nothing but their arming state, and the outdoor curtain PIRs still have no temperature here — theirs continues to come from the hub status stream. Of the 107, 42 expose the deactivation detail behind #338 and 13 an internal temperature. Four families are deliberately still not modelled (LifeQuality, LifeQuality Lite and the two roller shutters): part of their definition isn't available to us, and a placeholder would be indistinguishable from a device reporting nothing — they are reported by the probe above instead. Found by @wip3out3r.
 
 ### Fixed
+- **The no-stream fallback refresh can no longer blank readings the stream path preserves (#403).** When no live device stream is running — a failed start, or a teardown race — the integration refreshes its device list by polling, and that path replaced every device wholesale: battery, signal strength and the other carried-forward values were dropped silently, bypassing the very protection this release adds to the stream path. The polled fallback now applies snapshots through the same merge as the stream, and each application leaves a debug line naming which path it came through, so the two are distinguishable in a log.
+
 - **A MotionProtect no longer reports a case tamper that never happened (#406).** On a hub that carries case tampering only on its status stream, `1.15.0` began reading two of that stream's per-device keys as the tamper signal. On the reporter's MotionProtect one of those keys sits at `01` permanently, on a device the Ajax app shows as perfectly fine and that a physical remount does not change — so the sensor came on at the upgrade and stayed on, with nothing the owner could do about it.
 
   The keys are simply not a tamper field on every device family. The routing is now limited to the two families where a capture tied a key to a *physical* tamper — a MotionProtect Curtain pulled off its SmartBracket and a Transmitter with its enclosure opened, both confirmed on hardware in #339 — and every other family is read for diagnostics only, as it was before `1.15.0`.
