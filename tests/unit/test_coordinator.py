@@ -2848,6 +2848,85 @@ class TestHtsCaseTamperRouting:
         assert coordinator.devices["003AE89B"].statuses["tamper"] is True
 
 
+class TestHtsCaseTamperFamilyGate:
+    """Only families with a physical-tamper capture are routed (#406).
+
+    The keys are not a two-value tamper field everywhere. A reporter's
+    MotionProtect reads `0x0f` `01` steadily on an intact, remounted device
+    that the Ajax app shows as fine, which the unrestricted routing turned
+    into a permanent phantom alarm; a SpaceControl reads `0x04` `80` the same
+    way (#339), caught only by the `00`/`01` guard. So the routing acts on
+    the two families where a capture tied a key to a physical tamper, and
+    every other family keeps the probe and nothing else.
+    """
+
+    def _make_device(self, device_type: str, statuses: dict[str, object] | None = None) -> Device:
+        return Device(
+            id="00935562",
+            hub_id="hub-1",
+            name="Sensor",
+            device_type=device_type,
+            room_id=None,
+            group_id=None,
+            state=DeviceState.ONLINE,
+            malfunctions=0,
+            bypassed=False,
+            statuses=statuses if statuses is not None else {},
+            battery=None,
+        )
+
+    def test_unvalidated_family_does_not_raise_tamper(self) -> None:
+        # @D0NY3NK0's row verbatim (#406): a MotionProtect whose `0x0f` sits
+        # at `01` while the app reports no lid or bracket problem, alongside
+        # five devices on the same hub reading `00`/`00`.
+        coordinator = _make_coordinator()
+        coordinator.devices["00935562"] = self._make_device("motion_protect")
+        coordinator.async_set_updated_data = MagicMock()
+
+        coordinator._on_hts_device_kv("002B1A51", "00935562", {0x04: b"\x00", 0x0F: b"\x01"})
+
+        assert "tamper" not in coordinator.devices["00935562"].statuses
+        coordinator.async_set_updated_data.assert_not_called()
+
+    def test_unvalidated_family_is_still_probed(self, caplog: pytest.LogCaptureFixture) -> None:
+        # The gate must not cost us the diagnostic: this probe line is the
+        # only reason we know `0x0f` means something else on this family.
+        coordinator = _make_coordinator()
+        coordinator.devices["00935562"] = self._make_device("motion_protect")
+        coordinator.async_set_updated_data = MagicMock()
+
+        with caplog.at_level(logging.DEBUG, logger="custom_components.aegis_ajax.coordinator"):
+            coordinator._on_hts_device_kv("002B1A51", "00935562", {0x04: b"\x00", 0x0F: b"\x01"})
+
+        assert "HTS tamper probe" in caplog.text
+        assert "type=motion_protect " in caplog.text
+
+    def test_unvalidated_family_keeps_a_grpc_tamper(self) -> None:
+        # The gate withdraws nothing: a tamper the device stream reported is
+        # a different source and stays exactly as it was.
+        coordinator = _make_coordinator()
+        coordinator.devices["00935562"] = self._make_device(
+            "motion_protect", statuses={"tamper": True, "lid_opened": True}
+        )
+        coordinator.async_set_updated_data = MagicMock()
+
+        coordinator._on_hts_device_kv("002B1A51", "00935562", {0x04: b"\x00", 0x0F: b"\x00"})
+
+        assert coordinator.devices["00935562"].statuses["tamper"] is True
+
+    @pytest.mark.parametrize("device_type", ["motion_protect_curtain", "transmitter"])
+    def test_validated_families_still_route(self, device_type: str) -> None:
+        # Both were confirmed on hardware in #339 — a SmartBracket detach and
+        # an enclosure opening — and must keep working.
+        coordinator = _make_coordinator()
+        coordinator.devices["00935562"] = self._make_device(device_type)
+        coordinator.async_set_updated_data = MagicMock()
+
+        coordinator._on_hts_device_kv("002B1A51", "00935562", {0x0F: b"\x01"})
+
+        assert coordinator.devices["00935562"].statuses["tamper"] is True
+
+
 class TestOnHtsDeviceKv:
     """Coordinator translates HTS per-device kv into DeviceReadings."""
 
