@@ -2914,6 +2914,79 @@ class TestHtsCaseTamperFamilyGate:
 
         assert coordinator.devices["00935562"].statuses["tamper"] is True
 
+    def test_gated_family_withdraws_a_tamper_left_by_an_earlier_version(self) -> None:
+        # @D0NY3NK0's install after upgrading (#406). `self.devices` is restored
+        # from a persisted cache, so the `hts_case_tamper` 1.15.x wrote survives
+        # every restart — gating the write alone left the sensor on forever,
+        # because the only path that clears it is the one now skipped.
+        coordinator = _make_coordinator()
+        coordinator.devices["00935562"] = self._make_device(
+            "motion_protect", statuses={"tamper": True, "hts_case_tamper": True}
+        )
+        coordinator.async_set_updated_data = MagicMock()
+
+        coordinator._on_hts_device_kv("002B1A51", "00935562", {0x04: b"\x00", 0x0F: b"\x01"})
+
+        statuses = coordinator.devices["00935562"].statuses
+        assert "tamper" not in statuses
+        assert "hts_case_tamper" not in statuses
+        coordinator.async_set_updated_data.assert_called_once()
+
+    def test_gated_withdrawal_respects_a_live_grpc_source(self) -> None:
+        # The withdrawal drops only the HTS-sourced marker. A lid the device
+        # stream still reports open is a different source and must hold.
+        coordinator = _make_coordinator()
+        coordinator.devices["00935562"] = self._make_device(
+            "motion_protect",
+            statuses={"tamper": True, "hts_case_tamper": True, "lid_opened": True},
+        )
+        coordinator.async_set_updated_data = MagicMock()
+
+        coordinator._on_hts_device_kv("002B1A51", "00935562", {0x0F: b"\x01"})
+
+        statuses = coordinator.devices["00935562"].statuses
+        assert statuses["tamper"] is True
+        assert "hts_case_tamper" not in statuses
+
+    def test_gated_family_withdrawal_does_not_churn_when_already_clean(self) -> None:
+        # Every row repeats on the 60 s refresh; with nothing to withdraw the
+        # gate must stay silent rather than fire a state update per cycle.
+        coordinator = _make_coordinator()
+        coordinator.devices["00935562"] = self._make_device("motion_protect")
+        coordinator.async_set_updated_data = MagicMock()
+
+        coordinator._on_hts_device_kv("002B1A51", "00935562", {0x0F: b"\x01"})
+
+        coordinator.async_set_updated_data.assert_not_called()
+
+    def test_snapshot_does_not_carry_a_stale_tamper_for_a_gated_family(self) -> None:
+        # The snapshot carry-forward exists for routed families whose hub sends
+        # no tamper field. For a gated family it would re-raise the very value
+        # the withdrawal above just dropped, between snapshots.
+        coordinator = _make_coordinator()
+        coordinator.devices["00935562"] = self._make_device(
+            "motion_protect", statuses={"tamper": True, "hts_case_tamper": True}
+        )
+        coordinator.async_set_updated_data = MagicMock()
+
+        coordinator._handle_devices_snapshot([self._make_device("motion_protect")])
+
+        statuses = coordinator.devices["00935562"].statuses
+        assert "tamper" not in statuses
+        assert "hts_case_tamper" not in statuses
+
+    def test_snapshot_still_carries_a_tamper_for_a_routed_family(self) -> None:
+        # The #339 behaviour the carry-forward was written for.
+        coordinator = _make_coordinator()
+        coordinator.devices["00935562"] = self._make_device(
+            "motion_protect_curtain", statuses={"tamper": True, "hts_case_tamper": True}
+        )
+        coordinator.async_set_updated_data = MagicMock()
+
+        coordinator._handle_devices_snapshot([self._make_device("motion_protect_curtain")])
+
+        assert coordinator.devices["00935562"].statuses["tamper"] is True
+
     @pytest.mark.parametrize("device_type", ["motion_protect_curtain", "transmitter"])
     def test_validated_families_still_route(self, device_type: str) -> None:
         # Both were confirmed on hardware in #339 — a SmartBracket detach and
