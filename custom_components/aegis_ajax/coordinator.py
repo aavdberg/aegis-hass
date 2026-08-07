@@ -1336,6 +1336,16 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         (see `_KEEPALIVE_OPTIONS`): a wedged channel surfaces as an error the
         stream's own reconnect recovers from, rather than being detected here.
         This is a cheap no-op whenever a stream task is alive (the common case).
+
+        Applies the snapshot through `_handle_devices_snapshot` rather than
+        replacing `self.devices` wholesale: the wholesale replacement skipped
+        every carry-forward that function accumulated (#220 temperature, #339
+        tamper, #310 siren settings, #403 readings and battery) and left no
+        log line, so with streams down each poll could silently blank the
+        same readings #403 fixed on the stream path — one writer was gated,
+        this one was not (the #406 trap). The one thing kept from the old
+        behavior is removal: this is the resync-from-scratch path, so devices
+        the snapshot no longer reports are dropped before the merge.
         """
         streams_healthy = self._stream_tasks and all(not t.done() for t in self._stream_tasks)
         if streams_healthy:
@@ -1345,7 +1355,16 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             space_devices = await self._devices_api.get_devices_snapshot(space_id)
             for device in space_devices:
                 all_devices[device.id] = device
-        self.devices = all_devices
+        _LOGGER.debug(
+            "No live device stream; applying polled fallback snapshot (%d device(s))",
+            len(all_devices),
+        )
+        self.devices = {
+            device_id: device
+            for device_id, device in self.devices.items()
+            if device_id in all_devices
+        }
+        self._handle_devices_snapshot(list(all_devices.values()), notify_listeners=False)
 
     async def _maybe_restart_hts(self) -> None:
         """Reap a dead HTS task and re-start the client on the next cycle."""
@@ -2309,7 +2328,9 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.spaces[space_id] = dc_replace(space, chime_status=new_status)
         self.async_set_updated_data({"spaces": self.spaces, "devices": self.devices})
 
-    def _handle_devices_snapshot(self, devices: list[Device]) -> None:
+    def _handle_devices_snapshot(
+        self, devices: list[Device], *, notify_listeners: bool = True
+    ) -> None:
         """Handle initial snapshot or full device snapshot update from stream.
 
         Emits one DEBUG line per snapshot, which is the observable this path was
@@ -2427,7 +2448,11 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             carried_reading_count,
             carried_battery_count,
         )
-        self.async_set_updated_data({"spaces": self.spaces, "devices": self.devices})
+        # The polled fallback runs inside `_async_update_data`, whose return
+        # value the coordinator broadcasts anyway — a second notification
+        # from here would be redundant.
+        if notify_listeners:
+            self.async_set_updated_data({"spaces": self.spaces, "devices": self.devices})
         # Refresh the persisted cache so the next restart can warm-start
         # from real data instead of the previous boot's snapshot (#114).
         # Debounced — bursts of stream snapshots coalesce into one write.

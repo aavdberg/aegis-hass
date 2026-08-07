@@ -871,6 +871,76 @@ class TestAsyncUpdateData:
         coordinator.async_set_updated_data.assert_called_once()
 
 
+class TestFallbackDeviceSnapshot:
+    """The polled fallback must apply snapshots like the stream does (#403).
+
+    `_maybe_fallback_device_snapshot` used to replace `self.devices`
+    wholesale, bypassing every carry-forward `_handle_devices_snapshot`
+    accumulated (#220 temperature, #339 tamper, #310 siren settings, #403
+    readings and battery) and logging nothing — the same trap #406 hit:
+    guarding one writer does not guard the others. These tests pin that the
+    fallback routes through the same handler, and that it keeps the one
+    behavior the stream path does not have: dropping devices the snapshot
+    no longer reports.
+    """
+
+    def _make_fallback_coordinator(self) -> AjaxCobrandedCoordinator:  # noqa: F821
+        coordinator = _make_coordinator()
+        coordinator.spaces = {"s1": _make_space("s1")}
+        coordinator._stream_tasks = []  # no live stream → fallback runs
+        coordinator.async_set_updated_data = MagicMock()
+        coordinator._devices_api = MagicMock()
+        return coordinator
+
+    @pytest.mark.asyncio
+    async def test_fallback_snapshot_carries_forward_battery_and_readings(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        coordinator = self._make_fallback_coordinator()
+        coordinator.devices["d1"] = replace(
+            _make_device("d1", statuses={"signal_strength": 3}), battery=88
+        )
+        # The pathological snapshot from the report: same device, no
+        # battery, no measurements.
+        coordinator._devices_api.get_devices_snapshot = AsyncMock(return_value=[_make_device("d1")])
+
+        with caplog.at_level("DEBUG", logger="custom_components.aegis_ajax.coordinator"):
+            await coordinator._maybe_fallback_device_snapshot()
+
+        assert coordinator.devices["d1"].battery == 88
+        assert coordinator.devices["d1"].statuses["signal_strength"] == 3
+        # The wholesale replacement was also invisible — the fallback must
+        # leave the same trace the stream path leaves.
+        assert "Device snapshot applied" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_fallback_snapshot_still_drops_absent_devices(self) -> None:
+        # The stream handler only ever adds or replaces; the fallback is the
+        # one resync-from-scratch path, so a device deleted from Ajax while
+        # no stream was alive must not survive it.
+        coordinator = self._make_fallback_coordinator()
+        coordinator.devices["d1"] = _make_device("d1")
+        coordinator.devices["gone"] = _make_device("gone")
+        coordinator._devices_api.get_devices_snapshot = AsyncMock(return_value=[_make_device("d1")])
+
+        await coordinator._maybe_fallback_device_snapshot()
+
+        assert "d1" in coordinator.devices
+        assert "gone" not in coordinator.devices
+
+    @pytest.mark.asyncio
+    async def test_fallback_is_a_noop_while_streams_are_alive(self) -> None:
+        coordinator = self._make_fallback_coordinator()
+        alive = MagicMock()
+        alive.done.return_value = False
+        coordinator._stream_tasks = [alive]
+        coordinator._devices_api.get_devices_snapshot = AsyncMock()
+
+        await coordinator._maybe_fallback_device_snapshot()
+
+        coordinator._devices_api.get_devices_snapshot.assert_not_awaited()
+
+
 class TestStreamHandlers:
     """Tests for coordinator stream callback handlers."""
 
