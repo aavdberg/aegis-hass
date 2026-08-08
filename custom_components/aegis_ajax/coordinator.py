@@ -209,21 +209,6 @@ _SNAPSHOT_CARRY_FORWARD_STATUS_KEYS: frozenset[str] = frozenset(
     }
 )
 
-# HTS per-device kv keys that may carry the device's bypass configuration
-# (#338) — read-only probe, nothing is routed off them.
-#
-# Two independent hints put them here. A hardware log of an app-side
-# *re*activation showed `0xb7` on the device's STATUS_UPDATE row and `0xb6` on
-# the accompanying SETTINGS_UPDATE row, both reading `00` once the device was
-# back in protection. And `CommonJewellerPart.bypass_part` — a `BypassPart`
-# carrying the device's `capabilities` and its list of enabled `bypass_mode`s
-# — is field `0xB7` in the gRPC model. If the numbering spaces coincide, the
-# data that would explain the accept-but-inert write (a device whose enabled
-# modes exclude the one we send) is already arriving on a transport we consume,
-# no extra request needed. If they don't, these keys mean something else
-# entirely — hence a probe and not a feature.
-_HTS_BYPASS_CANDIDATE_KEYS: tuple[int, ...] = (0xB6, 0xB7)
-
 # HTS per-device kv keys that may carry a Button's last-activity timestamp
 # (#348) — read-only probe, nothing is routed off them.
 #
@@ -1507,20 +1492,17 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # signal only on the status stream. Runs before anything that can
         # return early so every device family is covered.
         self._maybe_apply_hts_device_tamper(device_id_hex, device, kv)
-        # Bypass-configuration candidate keys (#338) — read-only, logged before
-        # anything that can return early so every device family reports them.
-        self._log_hts_bypass_candidates(device_id_hex, device, kv)
-        # A modeled SpaceControl's settings row (#311) — read-only, same
-        # placement rationale as the bypass probe: this hub class never reaches
+        # A modeled SpaceControl's settings row (#311) — read-only, logged
+        # before anything that can return early: this hub class never reaches
         # the keyfob path, so this is the only place its row is ever visible.
         self._log_hts_space_control_settings(device_id_hex, device, kv)
         # The same device's activation-flag candidates (#311), which ride the
         # status row rather than the settings row — disjoint from the keys above,
         # hence a separate probe with a change-only contract.
         self._log_hts_space_control_flag_transitions(device_id_hex, device, kv)
-        # Button activity-timestamp candidate keys (#348) — read-only, same
-        # placement rationale as the bypass probe above: every device family
-        # gets probed, and the keys are Button-specific in every capture so far.
+        # Button activity-timestamp candidate keys (#348) — read-only, logged
+        # before anything that can return early so every device family gets
+        # probed; the keys are Button-specific in every capture so far.
         self._log_hts_button_activity_candidates(device_id_hex, device, kv, from_body=from_body)
         # Button control-mode press (#348) — fires the per-device event entity.
         self._maybe_fire_button_press(device_id_hex, device, kv)
@@ -1591,33 +1573,6 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.request_security_snapshot_refresh()
         return True
 
-    def _log_hts_bypass_candidates(
-        self, device_id_hex: str, device: Device, kv: dict[int, bytes]
-    ) -> None:
-        """DEBUG-log the HTS bypass-configuration candidate keys (#338).
-
-        Read-only by design — see `_HTS_BYPASS_CANDIDATE_KEYS`. The device's
-        current deactivation state goes on the same line, because that is what
-        makes a capture conclusive: a device the panel has deactivated and one
-        whose bypass command is accepted-but-inert should differ here if these
-        keys really carry `BypassPart`. A bare byte tells us nothing on its own;
-        the pairing with `deactivated=` does.
-
-        Silent when the row carries neither key, so firmwares that don't report
-        them add no log noise.
-        """
-        present = {key: kv[key] for key in _HTS_BYPASS_CANDIDATE_KEYS if key in kv}
-        if not present:
-            return
-        _LOGGER.debug(
-            "HTS bypass probe: device=%s type=%s candidates=%s deactivated=%s kinds=%s",
-            device_id_hex,
-            device.device_type,
-            {f"0x{key:02X}": value.hex() for key, value in present.items()},
-            is_device_deactivated(device),
-            device_deactivation_kinds(device),
-        )
-
     def _log_hts_space_control_settings(
         self, device_id_hex: str, device: Device, kv: dict[int, bytes]
     ) -> None:
@@ -1627,13 +1582,18 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         device type and not by shape, because the same sub-key numbers mean
         unrelated things on other families.
 
-        The deactivation state goes on the same line for the reason the bypass
-        probe does it: on this class of hub the keyfob already has the bypass
-        switch, so a row taken while the panel has it deactivated and one taken
-        while it does not are the pair that would locate the activation flag —
-        the flag the `Active` sensor guesses at on HTS-only hubs. The full key
-        list (numbers only, no values) rides along so a capture shows whether
-        the row's shape moved, without putting any field's contents in a log.
+        The deactivation state goes on the same line because the pairing is
+        what makes a capture conclusive: on this class of hub the keyfob
+        already has the bypass switch, so a row taken while the panel has it
+        deactivated and one taken while it does not are the pair that would
+        locate the activation flag — the flag the `Active` sensor guesses at
+        on HTS-only hubs. The full key list (numbers only, no values) rides
+        along so a capture shows whether the row's shape moved, without
+        putting any field's contents in a log. Read the pairing at rest only:
+        the bytes are fresh from the row, while `deactivated=`/`kinds=` come
+        off the device model, which nothing in the HTS path writes — so on a
+        transition the two halves can briefly disagree (#338 measured the
+        model catching up ~1 ms after the line had logged).
 
         Gated on `_HTS_SPACE_CONTROL_GATING_KEYS` — the settings keys *minus*
         `0xC3`. Gating on the full set did not deliver the silence this docstring
