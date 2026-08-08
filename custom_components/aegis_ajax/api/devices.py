@@ -918,33 +918,37 @@ class DevicesApi:
         )
 
     async def _device_bypass(self, command: DeviceCommand) -> None:
-        """Deactivate (bypass) a device via DeviceCommandDeviceBypass.
+        """Deactivate / reactivate a device via DeviceCommandDeviceBypass (#338).
 
-        `bypass_enable=True` → permanent (engineering) whole-device
-        deactivation, matching the `bypassed` flag the snapshot reports.
+        ⚠️ The enum names read backwards, and taking them at face value is the
+        whole of #338. `BYPASS_ENGINEERING_DISABLE` disables the **bypass** —
+        it reactivates the device. It does not engineering-disable the device.
+        The triple is {clear, sensor-bypass, tamper-bypass}, not {whole,
+        sensor, tamper}. So:
 
-        There is no clear value to send. The request's `Bypass` enum names
-        only kinds — engineering/one-time × whole/sensor/tamper — and
-        `BYPASS_UNSPECIFIED` (0) going out as a command value was measured on
-        a reporter's hub to fail with `INVALID_ARGUMENT: Can't get the number
-        of an unknown enum value` (#338). Fail here with a reason the entity
-        layer translates, rather than surfacing that gRPC error to the user,
-        and leave reactivation to the Ajax app until the lever the app itself
-        uses is known.
+            deactivate  -> BYPASS_ENGINEERING_SENSOR   (2)
+            reactivate  -> BYPASS_ENGINEERING_DISABLE  (1)
+
+        Sending value 1 to deactivate is why every write was accepted and
+        nothing happened: the hub was asked to clear a bypass the device did
+        not have, which is a legitimate no-op it correctly reports as success.
+        The same reading explains the reporter's `BYPASS_ONE_TIME_DISABLE`
+        test, inert for the same reason, and why an app-side deactivation
+        surfaces as `ENABLED_ENGINEER_BYPASS` (the app sends value 2).
+
+        Because a success response is *not* evidence the hub acted, the caller
+        still schedules an independent read-back — see `schedule_bypass_confirm`.
         """
-        if not command.bypass_enable:
-            raise DeviceCommandError(
-                "bypass: the hub accepts no clear value for this command; "
-                "reactivate the device from the Ajax app",
-                reason="bypass_clear_unsupported",
-            )
-
         from v3.mobilegwsvc.service.device_command_device_bypass import (  # noqa: PLC0415
             endpoint_pb2_grpc,
             request_pb2,
         )
 
-        bypass_type = request_pb2.DeviceCommandDeviceBypassRequest.BYPASS_ENGINEERING_DISABLE
+        bypass_type = (
+            request_pb2.DeviceCommandDeviceBypassRequest.BYPASS_ENGINEERING_SENSOR
+            if command.bypass_enable
+            else request_pb2.DeviceCommandDeviceBypassRequest.BYPASS_ENGINEERING_DISABLE
+        )
         channel = self._client._get_channel()
         metadata = self._client._session.get_call_metadata()
         stub = endpoint_pb2_grpc.DeviceCommandDeviceBypassServiceStub(channel)
