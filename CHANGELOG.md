@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.1] - unreleased
+
+### Fixed
+- **The Bypass switch now actually deactivates a device, and can put it back into protection (#338).** Deactivating from Home Assistant has never worked: the hub accepted every request and did nothing. The cause was the command's own vocabulary reading backwards — the value we sent to deactivate a device is in fact the one that *clears* a deactivation, so the hub was being asked to remove a bypass the device did not have, correctly reported that as done, and changed nothing. Turning the switch back off was then blocked outright in `1.16.0` on the conclusion that no clear value existed, when that value was the one we had been misusing all along.
+
+  Both directions now send the right value, so the switch deactivates and reactivates like the Ajax app does. A device deactivated from the app still shows up here exactly as before, and the read-back that warns when the hub accepts a write without acting is unchanged — a success response is still not treated as proof the hardware moved. Found by @wip3out3r, whose measurements ruled out every other explanation and whose test of a second value is what made the pattern legible.
+
 ## [1.16.0] - 2026-08-08
 
 Consolidates the `1.16.0-beta.1` … `-beta.12` series.

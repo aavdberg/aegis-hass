@@ -286,12 +286,11 @@ class AjaxBypassSwitch(CoordinatorEntity[AjaxCobrandedCoordinator], SwitchEntity
     the snapshot's `bypassed` flag False (#338). Reading only that flag showed
     a disabled sensor as live protection.
 
-    Writing still goes out as the permanent ("engineering") deactivation; the
+    Writing goes out as the permanent ("engineering") deactivation; the
     granular mode in force is exposed as the `deactivation_kinds` attribute.
-    Turning the switch *off* cannot be honoured — the hub's bypass command has
-    no value that clears a deactivation — so it raises a translated error
-    pointing at the Ajax app rather than sending a value the server rejects
-    (#338).
+    **Both directions are honoured** — see `DevicesApi._device_bypass` for why
+    the enum value that clears a deactivation is not the one its name suggests,
+    and why sending the wrong one looked like the hub ignoring us (#338).
     """
 
     _attr_has_entity_name = True

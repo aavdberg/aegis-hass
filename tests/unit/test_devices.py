@@ -2294,7 +2294,15 @@ class TestDeviceBypassCommand:
         return DevicesApi(client)
 
     @pytest.mark.asyncio
-    async def test_enable_sends_engineering_disable(self) -> None:
+    async def test_enable_sends_engineering_sensor(self) -> None:
+        """Deactivating sends `BYPASS_ENGINEERING_SENSOR`, not `..._DISABLE` (#338).
+
+        The enum names read backwards: `BYPASS_ENGINEERING_DISABLE` disables the
+        *bypass* (i.e. reactivates the device), it does not engineering-disable
+        the device. Sending it to deactivate is why every write was accepted and
+        did nothing — the hub was being asked to clear a bypass that was not
+        there, which is a legitimate no-op it correctly reports as success.
+        """
         from v3.mobilegwsvc.commonmodels.response import response_pb2 as common_response_pb2
         from v3.mobilegwsvc.service.device_command_device_bypass import (
             endpoint_pb2_grpc,
@@ -2328,48 +2336,88 @@ class TestDeviceBypassCommand:
         assert req.object_type.WhichOneof("type") == "door_protect"
         assert (
             req.bypass_type
-            == request_pb2.DeviceCommandDeviceBypassRequest.BYPASS_ENGINEERING_DISABLE
+            == request_pb2.DeviceCommandDeviceBypassRequest.BYPASS_ENGINEERING_SENSOR
         )
 
     @pytest.mark.asyncio
-    async def test_disable_raises_without_sending(self) -> None:
-        """Clearing a deactivation must fail locally, not on the wire (#338).
+    async def test_disable_sends_engineering_disable(self) -> None:
+        """Reactivating sends `BYPASS_ENGINEERING_DISABLE` — the clear lever (#338).
 
-        The `Bypass` enum has no "clear" value — 1..6 are the engineering and
-        one-time kinds. Sending `BYPASS_UNSPECIFIED` (0) as a command value was
-        measured on a reporter's hub to fail with
-        `INVALID_ARGUMENT: Can't get the number of an unknown enum value`, an
-        opaque gRPC error the user cannot act on. Fail before the call with a
-        reason the UI can translate instead.
+        `1.16.0-beta.8` refused this locally on the reading that the enum had no
+        clear value. That was backwards: value 1 *is* the clear, and refusing it
+        left reactivation impossible from Home Assistant for no reason.
         """
-        from v3.mobilegwsvc.service.device_command_device_bypass import endpoint_pb2_grpc
-
-        from custom_components.aegis_ajax.api.devices import DeviceCommandError
+        from v3.mobilegwsvc.commonmodels.response import response_pb2 as common_response_pb2
+        from v3.mobilegwsvc.service.device_command_device_bypass import (
+            endpoint_pb2_grpc,
+            request_pb2,
+            response_pb2,
+        )
 
         api = self._make_api()
         captured: list = []
+        ok = response_pb2.DeviceCommandDeviceBypassResponse(success=common_response_pb2.Success())
 
         class _StubFactory:
             def __init__(self, channel: object) -> None:
                 async def _execute(req: object, **_: object) -> object:
                     captured.append(req)
-                    return None
+                    return ok
 
                 self.execute = AsyncMock(side_effect=_execute)
 
-        with (
-            patch.object(endpoint_pb2_grpc, "DeviceCommandDeviceBypassServiceStub", _StubFactory),
-            pytest.raises(DeviceCommandError) as excinfo,
-        ):
+        with patch.object(endpoint_pb2_grpc, "DeviceCommandDeviceBypassServiceStub", _StubFactory):
             await api.send_command(
                 DeviceCommand.bypass(
                     hub_id="hub-1", device_id="dev-1", device_type="door_protect", enable=False
                 )
             )
 
-        assert excinfo.value.reason == "bypass_clear_unsupported"
-        # Nothing may reach the hub: the value the server rejects is never sent.
-        assert captured == []
+        assert len(captured) == 1
+        assert (
+            captured[0].bypass_type
+            == request_pb2.DeviceCommandDeviceBypassRequest.BYPASS_ENGINEERING_DISABLE
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_two_directions_send_different_values(self) -> None:
+        """The whole bug in one assertion: on and off must not be the same value.
+
+        Before the fix both directions resolved to `BYPASS_ENGINEERING_DISABLE`
+        (one by sending it, one by refusing to send anything), so no pair of
+        per-direction assertions could catch a mapping that collapsed them again.
+        """
+        from v3.mobilegwsvc.commonmodels.response import response_pb2 as common_response_pb2
+        from v3.mobilegwsvc.service.device_command_device_bypass import (
+            endpoint_pb2_grpc,
+            response_pb2,
+        )
+
+        api = self._make_api()
+        captured: list = []
+        ok = response_pb2.DeviceCommandDeviceBypassResponse(success=common_response_pb2.Success())
+
+        class _StubFactory:
+            def __init__(self, channel: object) -> None:
+                async def _execute(req: object, **_: object) -> object:
+                    captured.append(req)
+                    return ok
+
+                self.execute = AsyncMock(side_effect=_execute)
+
+        with patch.object(endpoint_pb2_grpc, "DeviceCommandDeviceBypassServiceStub", _StubFactory):
+            for enable in (True, False):
+                await api.send_command(
+                    DeviceCommand.bypass(
+                        hub_id="hub-1",
+                        device_id="dev-1",
+                        device_type="door_protect",
+                        enable=enable,
+                    )
+                )
+
+        assert len(captured) == 2
+        assert captured[0].bypass_type != captured[1].bypass_type
 
     @pytest.mark.asyncio
     async def test_bypass_failure_raises(self) -> None:
