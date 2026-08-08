@@ -45,7 +45,7 @@ Ajax Systems provides co-branded versions of their mobile app to security compan
 - **Device automation triggers**: every Ajax security event is a named device trigger on the hub device, selectable directly in the HA automation editor (no manual event-type strings)
 - **Doorbell events**: video-edge doorbells get a per-device `event` entity emitting HA's canonical `ring` event, and a doorbell motion push turns the doorbell's motion sensor on (30 s auto-off)
 - **Button presses**: an Ajax Button in control mode gets a per-device `event` entity that fires `pressed` — no push (FCM) needed, and it works while the system is armed or disarmed
-- **Per-device bypass switches**: each non-hub device can get a `bypass` switch to deactivate / reactivate it; gated by the `bypass_switches` option (`auto` / `always` / `never`). The switch reads `on` for a device deactivated **anywhere** — from Home Assistant, the Ajax app, or by an installer — and its `deactivation_kinds` attribute names the mode in force. Mind Ajax's own wording: `temporary_deactivation_*` is the **permanent** deactivation (until you re-enable it), `one_time_deactivation_*` lasts a single arming cycle, and a `*_tamper` variant means only the device's tamper protection is off. **Re-activating a device (switch off) must be done from the Ajax app** — Ajax's command vocabulary has no "clear deactivation" value, so the switch reports a clear error naming the app instead of silently failing ([#338](https://github.com/bvis/aegis-hass/issues/338))
+- **Per-device bypass switches**: each non-hub device can get a `bypass` switch to deactivate / reactivate it; gated by the `bypass_switches` option (`auto` / `always` / `never`). The switch reads `on` for a device deactivated **anywhere** — from Home Assistant, the Ajax app, or by an installer — and its `deactivation_kinds` attribute names the mode in force. Mind Ajax's own wording: `temporary_deactivation_*` is the **permanent** deactivation (until you re-enable it), `one_time_deactivation_*` lasts a single arming cycle, and a `*_tamper` variant means only the device's tamper protection is off. Both directions work from Home Assistant: switch **on** applies the same permanent deactivation the Ajax app does, switch **off** puts the device back under protection — and the integration re-reads the device after every write, so the switch never shows a state the hardware isn't in ([#338](https://github.com/bvis/aegis-hass/issues/338))
 - **Logbook**: Human-readable security event descriptions with icons
 - **Real-time updates**: Persistent gRPC stream for instant sensor state changes (< 1 second latency)
 - **Push notifications**: FCM integration for immediate event delivery
@@ -120,11 +120,10 @@ Click the button above, or manually:
 > Trade-offs to know: without photo / video permission the MotionCam Photo-on-Demand
 > button won't work, and per-device bypass switches need the account to hold the
 > device-deactivation (`DEVICE_EDIT`) permission — the default `bypass_switches: auto`
-> simply won't create them for an account that lacks it. On an account that has the
-> switch but can't apply the deactivation mode the hub still answers "success" and
-> changes nothing; the integration re-reads the device a few seconds after every
-> bypass write and logs a warning when the panel disagrees, so the switch never
-> shows a state the hardware isn't in.
+> simply won't create them for an account that lacks it. As a safety net, the
+> integration re-reads the device a few seconds after every bypass write and logs
+> a warning when the panel disagrees, so the switch never shows a state the
+> hardware isn't in.
 
 ### Options
 
