@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.2] - unreleased
+
+### Changed
+- Retired two leftovers of the #338 investigation, now that the fix is hardware-confirmed. The `HTS bypass probe` debug line answered its question — the hub's `0xB6`/`0xB7` status keys carry the deactivation *state*, now first-class on the bypass switch — and the one thing it could still do is mislead: on a transition it pairs a fresh byte with a deactivation state read from a model no HTS branch writes, so the two halves can briefly disagree. Also removed is the `1.16.0` error message saying a deactivation could not be cleared from Home Assistant, which `1.16.1` made unreachable.
+
 ## [1.16.1] - 2026-08-08
 
 Consolidates `1.16.1-beta.1`, hardware-confirmed in both directions by @wip3out3r.
