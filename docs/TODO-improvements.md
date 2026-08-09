@@ -91,7 +91,7 @@ _Last reconciled against shipped code: 2026-08-09 (v1.16.1 stable / v1.16.2-beta
 **Effort:** Low (1-2 hours) if the data is in a snapshot we already fetch — must add zero Ajax API calls.
 
 ### 3.3 Device Handler Architecture Refactor — tracked in #332
-**Status:** Approach approved with conditions (2026-07-20): gated on a stable shipping (lifted since `1.15.0`), start with PR-0+PR-1 (scaffolding + binary_sensor) only, characterization tests (per-`device_type` unique_id snapshot) non-negotiable in the same PR. Ball is with the contributor; no ping sent since the gate lifted.
+**Status:** Approach approved with conditions (2026-07-20): start with PR-0+PR-1 (scaffolding + binary_sensor) only, characterization tests (per-`device_type` unique_id snapshot) non-negotiable in the same PR. Gate-lifted notice posted 2026-07-26; contributor said "will look at the weekend" (07-27); check-in with the post-1.16.x context sent 2026-08-09. Ball is with the contributor.
 
 ### Parked with recorded reasons (see memory / docs/internal)
 - `HtsLifecycleManager` extraction — parked 2026-05-27, revisit triggers documented in `docs/internal/2026-05-27-hts-lifecycle-refactor-parked.md`.
