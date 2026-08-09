@@ -2,6 +2,8 @@
 
 Prioritized list of remaining improvements based on HA platinum integration patterns and real-world testing.
 
+_Last reconciled against shipped code: 2026-08-09 (v1.16.1 stable / v1.16.2-beta.1)._
+
 ## Completed
 
 - ~~Event Platform~~ (v0.5.0 + v0.9.0) — 16 event types with enriched device source info
@@ -67,58 +69,45 @@ Prioritized list of remaining improvements based on HA platinum integration patt
 
 ---
 
-### 1.0 Valve Platform (`valve.py`) — bidirectional control
-**Why:** Read-only valve entity shipped in `1.3.0` (#117). The remaining gap is **opening / closing the valve from HA** — automations can react to the valve being closed by a leak, but can't trigger the shut-off themselves nor reopen after a false-positive.
-
-**Status:** Blocked on protocol capture. There is no `SwitchWaterStopService` in the v3 protos we have. Need someone with a WaterStop to run the rig (Frida + mitmproxy on the official mobile app) and capture the gRPC call the app makes when toggling the valve from its UI.
-
-**Effort:** Unknown — likely 2-3 h once the wire shape is in hand.
+- ~~Valve Platform bidirectional control~~ (`v1.12.0`) — WaterStop / WaterStop Fibra open and close from HA (#308). The read-only entity shipped in `1.3.0` (#117); the command side landed once the wire shape was confirmed.
+- ~~Per-device firmware update entities (2.1)~~ (`v1.15.0`) — `update.<device>_firmware` per non-hub device from `streamHubObject` field 200, disabled by default, informational only. Hub entity's `installed_version` placeholder also superseded: since `v1.16.0` (#388) it reports the version the hub is actually running, read from the status channel and written to the device page.
+- ~~Persistent Notification Service (2.2)~~ (`v1.15.0`) — "Show security events as persistent notifications" option, configurable event set, off by default.
+- ~~Number/Select platforms (3.1) — sirens~~ (`1.15.x`) — Siren volume (select) + alarm duration (number) across the full siren family (#310, #354). The *general* per-device settings surface (shock sensitivity, LED brightness, …) remains open below.
 
 ---
 
-## Priority 2 — Medium impact, moderate effort
+## Open items
 
-### 2.1 Per-device firmware update entities
-**Why:** Hub-level firmware update entity shipped in `1.4.0-beta.5`. The same `streamHubObject` snapshot also exposes per-device firmware updates (field 200 `DeviceFirmwareUpdates`), which would surface as `update.<device>_firmware` entities — useful for installs with many devices on different firmware versions.
+### 3.1b Per-device settings beyond sirens (Number/Select)
+**Why:** Expose configurable device settings (shock sensitivity, LED brightness, etc.). The siren pair proved the pattern: read from the rich per-device endpoint, write via `UpdateHubDeviceService`, gate per capability ("gate, don't remove").
 
-**Effort:** Low-medium (2-3 h). Same read-only-by-design pattern as the hub entity. Per-device entities should be disabled-by-default (typical install has 10-30 devices and most users won't care which sensor is on which firmware unless one is failing).
+**Status:** Unblocked on the read side since #408 (107 families modelled, up from 33). Each new setting needs a hardware owner to confirm the read before the write ships — same discipline as the sirens.
 
-**Data source:** `HubObject.device_firmware_updates.device_firmware_update[]`, each entry carries `device_id`, `is_critical` (`BoolValue`), and a `Status` oneof with the full `not_started` / `downloading[%]` / `downloaded` / `installing` / `completed` / `failed` cycle.
-
-### 2.2 Persistent Notification Service
-**Why:** Show alarm events as HA persistent notifications with configurable filters.
-
-**Effort:** Medium (2 hours).
-
----
-
-## Priority 3 — Nice to have, higher effort
-
-### 3.1 Number/Select Platforms
-**Why:** Expose configurable device settings (shock sensitivity, LED brightness, etc.)
-
-**Data source:** Requires `UpdateHubDeviceService` gRPC.
-
-**Effort:** High (4-5 hours each).
+**Effort:** Medium per setting family.
 
 ### 3.2 Device Tracker (`device_tracker.py`)
 **Why:** Show hub location on HA map from geoFence coordinates.
 
-**Effort:** Low (1-2 hours) if data is available.
+**Effort:** Low (1-2 hours) if the data is in a snapshot we already fetch — must add zero Ajax API calls.
 
-### 3.3 Device Handler Architecture Refactor
-**Why:** Per-device-type handler pattern instead of monolithic `_DEVICE_TYPE_SENSORS` dict.
+### 3.3 Device Handler Architecture Refactor — tracked in #332
+**Status:** Approach approved with conditions (2026-07-20): gated on a stable shipping (lifted since `1.15.0`), start with PR-0+PR-1 (scaffolding + binary_sensor) only, characterization tests (per-`device_type` unique_id snapshot) non-negotiable in the same PR. Ball is with the contributor; no ping sent since the gate lifted.
 
-**Effort:** High (6-8 hours). Should be done when adding new entity types.
+### Parked with recorded reasons (see memory / docs/internal)
+- `HtsLifecycleManager` extraction — parked 2026-05-27, revisit triggers documented in `docs/internal/2026-05-27-hts-lifecycle-refactor-parked.md`.
+- Narrow wide `try` blocks in `notification.py` / `hub_object.py` — only if telemetry surfaces a swallowed error.
+- `const.py` split, proto-package pruning (~28 MB), `Any`-typing cleanup — low ROI, deferred.
+- Active-sessions feature (#330) — blocked: sessions ride the HTS gw channel, not gRPC; needs a capture nobody has scheduled.
+- FCM reconnect-storm hardening (#297) — blocked upstream on `firebase-messaging#39`.
 
 ---
 
 ## Known Limitations
 
-These are protocol-level limitations that cannot be resolved:
+Protocol-level limitations that cannot be resolved (pruned 2026-08-09):
 
 - **Hub tamper (lid) real state** — status exists in proto but server doesn't send it in `StreamLightDevices`
-- **Photo on-demand URL retrieval** — v2 capture works but photo URL via v3 detection area stream returns `permission_denied`
-- **SpaceControl keyfob listing** — keyfobs don't appear in `StreamLightDevices`
 - **Motion detection when disarmed** — Ajax firmware disables motion reporting when disarmed (battery conservation)
 - **Shock/vibration as persistent sensor** — these are alarm events, not persistent statuses
+
+Formerly listed here, since resolved: SpaceControl keyfobs (now surfaced from the status channel as the Keyfobs device / per-keyfob bypass; #311 tracks the experimental Active sensor), photo on-demand (capture + media source shipped; the v3 URL `permission_denied` path was routed around).
