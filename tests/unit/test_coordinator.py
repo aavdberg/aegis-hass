@@ -1039,6 +1039,113 @@ class TestStreamHandlers:
         # discriminating rather than the carry-forward simply not running.
         assert coordinator.devices["d1"].statuses["signal_strength"] == 3
 
+    # --- #419: deactivation must survive a degraded snapshot the hub disagrees with
+
+    def _deactivated_device(self, device_id: str = "d1") -> Device:
+        return _make_device(
+            device_id,
+            statuses={"temporary_deactivation_whole": True, "deactivated": True},
+        )
+
+    def _hub_says(
+        self,
+        coordinator: AjaxCobrandedCoordinator,  # noqa: F821
+        device_id: str,
+        *,
+        deactivated: bool,
+        age: float = 0.0,
+    ) -> None:
+        import time
+
+        coordinator._hts_bypass_state[device_id] = (deactivated, time.monotonic() - age)
+
+    def test_snapshot_clears_deactivation_without_hub_corroboration(self) -> None:
+        """Pins the pre-#419 behavior for families that never report 0xB7:
+        absence in the snapshot stays the clearing signal."""
+        coordinator = self._make_coordinator_with_stream()
+        coordinator.devices["d1"] = self._deactivated_device()
+
+        coordinator._handle_devices_snapshot([_make_device("d1")])
+
+        assert "deactivated" not in coordinator.devices["d1"].statuses
+        assert "temporary_deactivation_whole" not in coordinator.devices["d1"].statuses
+
+    def test_snapshot_carries_deactivation_while_the_hub_reports_it_engaged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The #403 measurement: a degraded snapshot's silence, corroborated
+        against the hub's own bypass report, is a degraded row — not a
+        reactivation."""
+        coordinator = self._make_coordinator_with_stream()
+        coordinator.devices["d1"] = self._deactivated_device()
+        self._hub_says(coordinator, "d1", deactivated=True)
+
+        with caplog.at_level("DEBUG", logger="custom_components.aegis_ajax.coordinator"):
+            coordinator._handle_devices_snapshot([_make_device("d1")])
+
+        assert coordinator.devices["d1"].statuses["deactivated"] is True
+        assert coordinator.devices["d1"].statuses["temporary_deactivation_whole"] is True
+        assert "d1" in coordinator._hts_carried_deactivation_ids
+        assert "Deactivation state carried across snapshot" in caplog.text
+
+    def test_snapshot_clears_deactivation_when_the_hub_reports_it_lifted(self) -> None:
+        coordinator = self._make_coordinator_with_stream()
+        coordinator.devices["d1"] = self._deactivated_device()
+        self._hub_says(coordinator, "d1", deactivated=False)
+
+        coordinator._handle_devices_snapshot([_make_device("d1")])
+
+        assert "deactivated" not in coordinator.devices["d1"].statuses
+        assert "d1" not in coordinator._hts_carried_deactivation_ids
+
+    def test_a_stale_hub_report_does_not_corroborate(self) -> None:
+        """Beyond the trust window the hub's word is too old to overrule a
+        snapshot — HTS may have been down long enough for the world to move."""
+        coordinator = self._make_coordinator_with_stream()
+        coordinator.devices["d1"] = self._deactivated_device()
+        self._hub_says(coordinator, "d1", deactivated=True, age=16 * 60)
+
+        coordinator._handle_devices_snapshot([_make_device("d1")])
+
+        assert "deactivated" not in coordinator.devices["d1"].statuses
+
+    def test_deactivation_in_the_snapshot_wins_over_the_carry(self) -> None:
+        """A snapshot that itself reports deactivation is gRPC-fresh: applied
+        as-is and the carried-marker dropped, so the withdraw path can never
+        touch state the server vouched for."""
+        coordinator = self._make_coordinator_with_stream()
+        coordinator.devices["d1"] = self._deactivated_device()
+        coordinator._hts_carried_deactivation_ids.add("d1")
+        self._hub_says(coordinator, "d1", deactivated=True)
+
+        coordinator._handle_devices_snapshot([self._deactivated_device()])
+
+        assert coordinator.devices["d1"].statuses["deactivated"] is True
+        assert "d1" not in coordinator._hts_carried_deactivation_ids
+
+    def test_carry_does_not_invent_deactivation(self) -> None:
+        """0xB7=01 for a device the model shows as protecting stores the
+        observation and nothing else — the carry preserves, never creates."""
+        coordinator = self._make_coordinator_with_stream()
+        coordinator.devices["d1"] = _make_device("d1")
+        self._hub_says(coordinator, "d1", deactivated=True)
+
+        coordinator._handle_devices_snapshot([_make_device("d1")])
+
+        assert "deactivated" not in coordinator.devices["d1"].statuses
+        assert "d1" not in coordinator._hts_carried_deactivation_ids
+
+    def test_bypassed_field_is_carried_with_the_corroboration(self) -> None:
+        """`is_device_deactivated` reads `bypassed` as an independent source,
+        so the carry must preserve it too."""
+        coordinator = self._make_coordinator_with_stream()
+        coordinator.devices["d1"] = replace(_make_device("d1"), bypassed=True)
+        self._hub_says(coordinator, "d1", deactivated=True)
+
+        coordinator._handle_devices_snapshot([_make_device("d1")])
+
+        assert coordinator.devices["d1"].bypassed is True
+
     def test_a_value_in_the_snapshot_wins_over_the_carried_one(self) -> None:
         """Carry-forward only fills gaps, so #312's live tracking still holds.
 
@@ -2490,6 +2597,88 @@ class TestHtsTamperProbeLogging:
             coordinator._on_hts_device_kv("002B1A51", "003AE89B", {0x42: b"\x00\x28"})
 
         assert "HTS tamper probe" not in caplog.text
+
+
+class TestHtsBypassStateTracking:
+    """HTS `0xB7` as the corroborator for the deactivation carry (#419).
+
+    The key is hardware-validated (#338): `01` ⇔ deactivated, `00` ⇔
+    protecting, 1:1 at rest across every reporting device. Tracking it is
+    read-mostly: the single write-back allowed is withdrawing a carry this
+    coordinator itself applied, the moment the hub reports the bypass lifted.
+    """
+
+    def test_kv_row_records_the_hub_bypass_state(self) -> None:
+        coordinator = _make_coordinator()
+        coordinator.devices["003AE89B"] = _make_device("003AE89B")
+        coordinator.async_set_updated_data = MagicMock()
+
+        coordinator._on_hts_device_kv("002B1A51", "003AE89B", {0xB7: b"\x01"})
+        assert coordinator._hts_bypass_state["003AE89B"][0] is True
+
+        coordinator._on_hts_device_kv("002B1A51", "003AE89B", {0xB7: b"\x00"})
+        assert coordinator._hts_bypass_state["003AE89B"][0] is False
+
+    def test_hub_lift_withdraws_a_carried_deactivation(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The carry can never outlive the hub's own word by more than one
+        status refresh — `00` takes it back on the spot."""
+        coordinator = _make_coordinator()
+        coordinator.devices["003AE89B"] = replace(
+            _make_device(
+                "003AE89B",
+                statuses={
+                    "temporary_deactivation_whole": True,
+                    "deactivated": True,
+                    "signal_strength": 3,
+                },
+            ),
+            bypassed=True,
+        )
+        coordinator._hts_carried_deactivation_ids.add("003AE89B")
+        coordinator.async_set_updated_data = MagicMock()
+
+        with caplog.at_level("DEBUG", logger="custom_components.aegis_ajax.coordinator"):
+            coordinator._on_hts_device_kv("002B1A51", "003AE89B", {0xB7: b"\x00"})
+
+        device = coordinator.devices["003AE89B"]
+        assert "deactivated" not in device.statuses
+        assert "temporary_deactivation_whole" not in device.statuses
+        assert device.bypassed is False
+        # A measurement alongside survives the strip.
+        assert device.statuses["signal_strength"] == 3
+        assert "003AE89B" not in coordinator._hts_carried_deactivation_ids
+        coordinator.async_set_updated_data.assert_called_once()
+        assert "Withdrew carried deactivation" in caplog.text
+
+    def test_hub_lift_leaves_grpc_fresh_deactivation_alone(self) -> None:
+        """Withdrawal is licensed only for state that exists because of the
+        carry — deactivation the server itself reported is not ours to clear."""
+        coordinator = _make_coordinator()
+        coordinator.devices["003AE89B"] = _make_device(
+            "003AE89B",
+            statuses={"temporary_deactivation_whole": True, "deactivated": True},
+        )
+        coordinator.async_set_updated_data = MagicMock()
+
+        coordinator._on_hts_device_kv("002B1A51", "003AE89B", {0xB7: b"\x00"})
+
+        assert coordinator.devices["003AE89B"].statuses["deactivated"] is True
+
+    def test_hub_report_engaged_never_writes(self) -> None:
+        """`01` for a protecting device stores the observation and nothing
+        else — routing a wrong byte onto the switch would misreport whether a
+        sensor is protecting."""
+        coordinator = _make_coordinator()
+        original = _make_device("003AE89B")
+        coordinator.devices["003AE89B"] = original
+        coordinator.async_set_updated_data = MagicMock()
+
+        coordinator._on_hts_device_kv("002B1A51", "003AE89B", {0xB7: b"\x01"})
+
+        assert coordinator.devices["003AE89B"] is original
+        assert coordinator.devices["003AE89B"].statuses == {}
 
 
 class TestHtsButtonActivityProbe:

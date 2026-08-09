@@ -209,6 +209,20 @@ _SNAPSHOT_CARRY_FORWARD_STATUS_KEYS: frozenset[str] = frozenset(
     }
 )
 
+# HTS per-device kv key carrying the hub's own report of a device's engaged
+# bypass modes (#419). Hardware-validated in #338: `01` ⇔ the panel has the
+# device deactivated, `00` ⇔ protecting, 1:1 across every device that reports
+# it at rest. It rides the STATUS_BODY the client already requests every 60 s,
+# so consuming it adds no Ajax API traffic.
+_HTS_BYPASS_STATE_KEY = 0xB7
+
+# How long the last 0xB7 report may be trusted to corroborate a snapshot's
+# silence (#419). STATUS_BODY refreshes every 60 s, so 15 minutes is ~15
+# missed refreshes — generous against the longest observed drop-to-reconnect
+# (3m24s, #403) while refusing to let an hours-stale report overrule a
+# snapshot after HTS has been down long enough for the world to have moved.
+_HTS_BYPASS_STATE_TRUST_WINDOW = 15 * 60.0
+
 # HTS per-device kv keys that may carry a Button's last-activity timestamp
 # (#348) — read-only probe, nothing is routed off them.
 #
@@ -487,6 +501,14 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # HTS client for hub network data (ethernet, wifi, gsm, power)
         self._hts_client: HtsClient | None = None
         self._hts_task: asyncio.Task[None] | None = None
+        # Last hub-reported bypass state per device (#419): HTS 0xB7 as
+        # (deactivated, monotonic seen-at). Gates the deactivation
+        # carry-forward across gRPC snapshots; never creates state.
+        self._hts_bypass_state: dict[str, tuple[bool, float]] = {}
+        # Devices whose deactivation statuses exist ONLY because the
+        # corroborated carry preserved them (#419). Membership licenses the
+        # withdraw-on-0xB7=00 path; anything gRPC-fresh clears membership.
+        self._hts_carried_deactivation_ids: set[str] = set()
         # Monotonic timestamp of the last user-triggered STATUS_BODY
         # refresh per hub. Read by `async_request_manual_refresh` to
         # rate-limit successive presses to `MANUAL_REFRESH_INTERVAL`.
@@ -1492,6 +1514,10 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # signal only on the status stream. Runs before anything that can
         # return early so every device family is covered.
         self._maybe_apply_hts_device_tamper(device_id_hex, device, kv)
+        # The hub's own bypass state, 0xB7 (#419) — tracked before anything
+        # that can return early so every reporting family feeds the
+        # deactivation carry-forward gate.
+        self._maybe_track_hts_bypass_state(device_id_hex, device, kv)
         # A modeled SpaceControl's settings row (#311) — read-only, logged
         # before anything that can return early: this hub class never reaches
         # the keyfob path, so this is the only place its row is ever visible.
@@ -1572,6 +1598,57 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             self.request_security_snapshot_refresh()
         return True
+
+    def _maybe_track_hts_bypass_state(
+        self, device_id_hex: str, device: Device, kv: dict[int, bytes]
+    ) -> None:
+        """Track the hub's per-device bypass state, HTS `0xB7` (#419).
+
+        Read-mostly by design. The stored value gates the deactivation
+        carry-forward in `_handle_devices_snapshot` — see the carry there for
+        why a gRPC snapshot's silence is ambiguous. The one write this method
+        performs is a WITHDRAWAL: when the hub reports the bypass lifted
+        (`00`) for a device whose deactivation statuses exist only because
+        that carry preserved them, the carry is taken back on the spot, so it
+        can never outlive the hub's own word by more than one status refresh.
+        It never creates deactivation state — a `01` for a device the model
+        shows as protecting stores the observation and does nothing else
+        (#406's lesson: withdraw at the gate that applied the value).
+        """
+        raw = kv.get(_HTS_BYPASS_STATE_KEY)
+        if raw is None:
+            return
+        deactivated = any(byte != 0 for byte in raw)
+        self._hts_bypass_state[device_id_hex] = (deactivated, time.monotonic())
+        if deactivated or device_id_hex not in self._hts_carried_deactivation_ids:
+            return
+        from dataclasses import replace as dc_replace  # noqa: PLC0415
+
+        self._hts_carried_deactivation_ids.discard(device_id_hex)
+        # Re-fetch: an earlier handler in this same kv pass (the #339 tamper
+        # apply) may have replaced the model object the caller handed us.
+        current = self.devices.get(device_id_hex, device)
+        stripped = {
+            key: value
+            for key, value in current.statuses.items()
+            if key not in DEACTIVATION_STATUS_KEYS and key != DEACTIVATED_KEY
+        }
+        self.devices[device_id_hex] = dc_replace(current, statuses=stripped, bypassed=False)
+        _LOGGER.debug(
+            "Withdrew carried deactivation for %s — the hub reports the bypass lifted",
+            device_id_hex,
+        )
+        self.async_set_updated_data({"spaces": self.spaces, "devices": self.devices})
+
+    def _hts_confirms_deactivation(self, device_id: str) -> bool:
+        """True when a fresh HTS `0xB7` report says the bypass is engaged (#419)."""
+        entry = self._hts_bypass_state.get(device_id)
+        if entry is None:
+            return False
+        deactivated, seen_at = entry
+        if not deactivated:
+            return False
+        return (time.monotonic() - seen_at) <= _HTS_BYPASS_STATE_TRUST_WINDOW
 
     def _log_hts_space_control_settings(
         self, device_id_hex: str, device: Device, kv: dict[int, bytes]
@@ -2308,6 +2385,7 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         carried_reading_count = 0
         carried_battery_count = 0
+        carried_deactivation_count = 0
         for device in devices:
             # Per-device temperature (#220, #229) comes from a separate
             # per-device RPC, not this stream, so a fresh snapshot would wipe
@@ -2392,6 +2470,44 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if device.battery is None and existing.battery is not None:
                     carried_battery_count += 1
                     device = dc_replace(device, battery=existing.battery)
+                # Deactivation statuses are deliberately NOT in the blanket
+                # carry list above: on the update path a genuine reactivation
+                # arrives as an explicit REMOVE op, but here absence is the
+                # only signal there is — and #403 measured a degraded snapshot
+                # whose silence meant nothing (three deactivated sensors read
+                # as protecting for four hours, #419). The hub's own bypass
+                # state (HTS 0xB7, hardware-validated in #338) disambiguates:
+                # carry only while a fresh report says the bypass is still
+                # engaged. A genuine reactivation reads `00` there and the
+                # clear goes through unchanged, as it does for devices with no
+                # report at all (family doesn't send it / HTS quiet beyond the
+                # trust window). `_maybe_track_hts_bypass_state` withdraws the
+                # carry the moment the hub reports the bypass lifted.
+                if not any(key in device.statuses for key in DEACTIVATION_STATUS_KEYS):
+                    had_deactivation = existing.bypassed or any(
+                        existing.statuses.get(key) for key in DEACTIVATION_STATUS_KEYS
+                    )
+                    if had_deactivation and self._hts_confirms_deactivation(device.id):
+                        carried_deactivation = {
+                            key: existing.statuses[key]
+                            for key in (*DEACTIVATION_STATUS_KEYS, DEACTIVATED_KEY)
+                            if key in existing.statuses
+                        }
+                        device = dc_replace(
+                            device,
+                            statuses={**device.statuses, **carried_deactivation},
+                            bypassed=existing.bypassed or device.bypassed,
+                        )
+                        self._hts_carried_deactivation_ids.add(device.id)
+                        carried_deactivation_count += 1
+                    else:
+                        # Cleared (or nothing to clear) — any earlier carry is
+                        # no longer what the model's state rests on.
+                        self._hts_carried_deactivation_ids.discard(device.id)
+                else:
+                    # The snapshot itself reports deactivation — gRPC-fresh,
+                    # so an earlier carry is superseded.
+                    self._hts_carried_deactivation_ids.discard(device.id)
             self.devices[device.id] = device
         # `DevicesApi` dedups video-doorbell twins per snapshot, but the merge
         # above only ever *adds* keys — a `motion_cam_video_*` ghost that was
@@ -2408,6 +2524,14 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             carried_reading_count,
             carried_battery_count,
         )
+        # Separate line on purpose — the one above is grepped by field
+        # instrumentation (#403) and its shape must stay stable.
+        if carried_deactivation_count:
+            _LOGGER.debug(
+                "Deactivation state carried across snapshot for %d device(s) "
+                "on the hub's own bypass report (#419)",
+                carried_deactivation_count,
+            )
         # The polled fallback runs inside `_async_update_data`, whose return
         # value the coordinator broadcasts anyway — a second notification
         # from here would be redundant.
@@ -2515,6 +2639,10 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     new_statuses.pop(DEACTIVATED_KEY, None)
             else:
                 new_statuses[DEACTIVATED_KEY] = True
+            # gRPC-fresh deactivation info — the model's state no longer
+            # rests on a #419 snapshot carry, so the withdraw path must
+            # not touch it.
+            self._hts_carried_deactivation_ids.discard(device.id)
 
         updated = DeviceModel(
             id=device.id,
