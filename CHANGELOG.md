@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Retired two leftovers of the #338 investigation, now that the fix is hardware-confirmed. The `HTS bypass probe` debug line answered its question — the hub's `0xB6`/`0xB7` status keys carry the deactivation *state*, now first-class on the bypass switch — and the one thing it could still do is mislead: on a transition it pairs a fresh byte with a deactivation state read from a model no HTS branch writes, so the two halves can briefly disagree. Also removed is the `1.16.0` error message saying a deactivation could not be cleared from Home Assistant, which `1.16.1` made unreachable.
 
+### Fixed
+- **The Bypass switch no longer silently flips to "protecting" when a degraded snapshot omits the deactivation state (#419).** A full device snapshot whose rows arrive without their usual detail — the same kind of event that emptied battery readings in #403 — also cleared the deactivation state, so a device the panel had deactivated read as protecting: on the reporting install, three deactivated sensors showed as active for over four hours. That is the wrong direction for a security integration to fail in, and a cleared switch cannot be told apart from a genuine reactivation.
+
+  The hub itself reports each device's bypass state on the status channel the integration already listens to (the read validated on hardware in #338), so a snapshot's silence is now corroborated against it: still reported engaged — the deactivation is carried forward; reported lifted, too old to trust, or not reported at all — the clear goes through exactly as before. If the hub later reports the bypass lifted while the carried state is the only one in force, the carry is withdrawn on the spot. No additional requests to Ajax are made anywhere in this — the corroborating value already arrives on the existing stream. Found, measured and dated by @wip3out3r in #403.
+
 ## [1.16.1] - 2026-08-08
 
 Consolidates `1.16.1-beta.1`, hardware-confirmed in both directions by @wip3out3r.
