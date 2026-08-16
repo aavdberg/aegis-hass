@@ -81,6 +81,7 @@ from custom_components.aegis_ajax.repairs import async_check_grpcio_version  # n
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant, ServiceCall
+    from homeassistant.helpers.device_registry import DeviceEntry
 
 _FCM_KEYS = {"fcm_project_id", "fcm_app_id", "fcm_api_key", "fcm_sender_id"}
 
@@ -638,6 +639,31 @@ async def async_unload_entry(hass: HomeAssistant, entry: AjaxCobrandedConfigEntr
         coordinator: AjaxCobrandedCoordinator = entry.runtime_data
         await coordinator.async_shutdown()
     return unload_ok
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant,
+    entry: AjaxCobrandedConfigEntry,
+    device_entry: DeviceEntry,
+) -> bool:
+    """Let the user delete a device the hub no longer reports (#422).
+
+    HA only offers "Delete device" when the integration defines this hook.
+    Anything the coordinator still tracks (the hub, live devices,
+    runtime-discovered keyfobs) is refused; a device the hub stopped
+    reporting may go. If the hub in fact still reports it, the next
+    snapshot legitimately re-creates it — a wrong deletion self-heals.
+    """
+    coordinator: AjaxCobrandedCoordinator | None = getattr(entry, "runtime_data", None)
+    if coordinator is None:
+        # Entry not running — nothing can vouch for the device either way;
+        # allow, for the same self-healing reason.
+        return True
+    our_ids = {id_ for domain, id_ in device_entry.identifiers if domain == DOMAIN}
+    return not any(
+        device_id in coordinator.devices or device_id in coordinator.keyfobs
+        for device_id in our_ids
+    )
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: AjaxCobrandedConfigEntry) -> None:

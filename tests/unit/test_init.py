@@ -927,3 +927,68 @@ class TestSetPhotoOnDemandModeHandler:
             await _async_handle_set_photo_on_demand_mode(hass, self._make_call({"user": True}))
 
         coordinator.devices_api.set_photo_on_demand_mode.assert_not_called()
+
+
+class TestAsyncRemoveConfigEntryDevice:
+    """#422 — the HA-standard manual-delete hook. HA only offers "Delete"
+    on a device page when the integration defines it."""
+
+    def _device_entry(self, *identifiers: tuple[str, str]) -> MagicMock:
+        device_entry = MagicMock()
+        device_entry.identifiers = set(identifiers)
+        return device_entry
+
+    def _entry(self) -> MagicMock:
+        coordinator = MagicMock()
+        coordinator.devices = {"d1": MagicMock(), "hub-1": MagicMock()}
+        coordinator.keyfobs = {"kf1": MagicMock()}
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+        return entry
+
+    @pytest.mark.asyncio
+    async def test_devices_the_hub_still_reports_stay(self) -> None:
+        from custom_components.aegis_ajax import async_remove_config_entry_device
+        from custom_components.aegis_ajax.const import DOMAIN
+
+        entry = self._entry()
+        hass = MagicMock()
+
+        assert not await async_remove_config_entry_device(
+            hass, entry, self._device_entry((DOMAIN, "d1"))
+        )
+        # The hub device is always tracked, so it is protected by the same gate.
+        assert not await async_remove_config_entry_device(
+            hass, entry, self._device_entry((DOMAIN, "hub-1"))
+        )
+        # Runtime-discovered keyfobs live outside coordinator.devices but are
+        # just as alive.
+        assert not await async_remove_config_entry_device(
+            hass, entry, self._device_entry((DOMAIN, "kf1"))
+        )
+
+    @pytest.mark.asyncio
+    async def test_devices_the_hub_no_longer_reports_may_go(self) -> None:
+        from custom_components.aegis_ajax import async_remove_config_entry_device
+        from custom_components.aegis_ajax.const import DOMAIN
+
+        entry = self._entry()
+        hass = MagicMock()
+
+        assert await async_remove_config_entry_device(
+            hass, entry, self._device_entry((DOMAIN, "ghost"))
+        )
+
+    @pytest.mark.asyncio
+    async def test_unloaded_entry_allows_removal(self) -> None:
+        """With no coordinator running nothing can vouch for the device;
+        deleting is allowed — a wrong delete self-heals on next setup."""
+        from custom_components.aegis_ajax import async_remove_config_entry_device
+        from custom_components.aegis_ajax.const import DOMAIN
+
+        entry = MagicMock(spec=[])  # no runtime_data attribute at all
+        hass = MagicMock()
+
+        assert await async_remove_config_entry_device(
+            hass, entry, self._device_entry((DOMAIN, "d1"))
+        )
