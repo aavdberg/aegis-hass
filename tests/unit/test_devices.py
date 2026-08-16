@@ -24,6 +24,22 @@ from custom_components.aegis_ajax.api.models import Device, DeviceCommand
 from custom_components.aegis_ajax.const import DeviceState
 
 
+def _make_light_device_mock(device_id: str = "dev-1") -> MagicMock:
+    mock_light_device = MagicMock()
+    mock_light_device.WhichOneof.return_value = "hub_device"
+    mock_light_device.hub_device.common_device.profile.id = device_id
+    mock_light_device.hub_device.common_device.profile.name = "Sensor"
+    mock_light_device.hub_device.common_device.profile.room_id = ""
+    mock_light_device.hub_device.common_device.profile.group_id = ""
+    mock_light_device.hub_device.common_device.profile.malfunctions = 0
+    mock_light_device.hub_device.common_device.profile.bypassed = False
+    mock_light_device.hub_device.common_device.profile.states = []
+    mock_light_device.hub_device.common_device.profile.statuses = []
+    mock_light_device.hub_device.common_device.hub_id = "hub-1"
+    mock_light_device.hub_device.common_device.object_type.WhichOneof.return_value = "door_protect"
+    return mock_light_device
+
+
 class TestParseDevice:
     def test_parse_hub_device(self) -> None:
         proto_device = MagicMock()
@@ -247,6 +263,105 @@ class TestParseDevice:
 
         assert captured["status_name"] == "lock_control_status"
         assert captured["payload"]["value"] == "unlocked"
+
+    def test_handle_update_snapshot_remove_routes_to_on_device_removed(self) -> None:
+        """A `snapshot_update` with `update_type=REMOVE` is a device deletion
+        (#422), not a refresh. The residual record must NOT be merged back —
+        it arrives stripped server-side, and merging it is what wiped device
+        names into "Unnamed device" — and the removal handler gets the id.
+        """
+        from v3.mobilegwsvc.service.stream_light_devices import (  # noqa: PLC0415
+            response_pb2,
+        )
+
+        update = response_pb2.StreamLightDevicesResponse.Success.Update()
+        update.device_id.hub_light_device_id.device_id = "30427616"
+        update.snapshot_update.update_type = 3  # UPDATE_TYPE_REMOVE
+        # `light_device` deliberately left unset — the tombstone shape.
+
+        snapshots: list[list[Any]] = []
+        removed: list[str] = []
+
+        api = DevicesApi(MagicMock())
+        api._handle_update(
+            update,
+            on_devices_snapshot=lambda devices, **_kw: snapshots.append(devices),
+            on_status_update=lambda _d, _s, _p: None,
+            on_device_removed=removed.append,
+        )
+
+        assert removed == ["30427616"]
+        assert snapshots == []
+
+    def test_handle_update_snapshot_remove_falls_back_to_record_id(self) -> None:
+        """A REMOVE whose envelope `device_id` is empty still resolves the
+        device through the residual record's own id."""
+        update = MagicMock()
+        update.WhichOneof.return_value = "snapshot_update"
+        update.device_id.hub_light_device_id.device_id = ""
+        update.snapshot_update.update_type = 3  # UPDATE_TYPE_REMOVE
+        update.snapshot_update.light_device = _make_light_device_mock("dev-55")
+
+        removed: list[str] = []
+        api = DevicesApi(MagicMock())
+        api._handle_update(
+            update,
+            on_devices_snapshot=lambda _devices, **_kw: pytest.fail("REMOVE must not merge"),
+            on_status_update=lambda _d, _s, _p: None,
+            on_device_removed=removed.append,
+        )
+
+        assert removed == ["dev-55"]
+
+    def test_handle_update_snapshot_remove_without_any_id_is_dropped(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """No envelope id and an unparseable residual record: the update is
+        dropped without merging, leaving a DEBUG trace."""
+        import logging as _logging  # noqa: PLC0415
+
+        from v3.mobilegwsvc.service.stream_light_devices import (  # noqa: PLC0415
+            response_pb2,
+        )
+
+        update = response_pb2.StreamLightDevicesResponse.Success.Update()
+        update.snapshot_update.update_type = 3  # oneof selected, all else unset
+
+        calls: list[Any] = []
+        api = DevicesApi(MagicMock())
+        with caplog.at_level(_logging.DEBUG, logger="custom_components.aegis_ajax.api.devices"):
+            api._handle_update(
+                update,
+                on_devices_snapshot=lambda devices, **_kw: calls.append(devices),
+                on_status_update=lambda _d, _s, _p: None,
+                on_device_removed=calls.append,
+            )
+
+        assert calls == []
+        assert any("REMOVE" in record.message for record in caplog.records)
+
+    def test_handle_update_snapshot_add_and_update_still_merge(self) -> None:
+        """`update_type` ADD/UPDATE keeps today's merge path untouched."""
+        for update_type in (1, 2):
+            self._assert_snapshot_update_merges(update_type)
+
+    def _assert_snapshot_update_merges(self, update_type: int) -> None:
+        update = MagicMock()
+        update.WhichOneof.return_value = "snapshot_update"
+        update.snapshot_update.update_type = update_type
+        update.snapshot_update.light_device = _make_light_device_mock("dev-77")
+
+        snapshots: list[list[Any]] = []
+        api = DevicesApi(MagicMock())
+        api._handle_update(
+            update,
+            on_devices_snapshot=lambda devices, **_kw: snapshots.append(devices),
+            on_status_update=lambda _d, _s, _p: None,
+            on_device_removed=lambda _id: pytest.fail("ADD/UPDATE must not remove"),
+        )
+
+        assert len(snapshots) == 1, f"update_type={update_type}"
+        assert snapshots[0][0].id == "dev-77"
 
     def test_parse_unsupported_oneof_with_empty_proto_logs_nothing(
         self, caplog: pytest.LogCaptureFixture
@@ -2805,28 +2920,11 @@ class TestStartDeviceStream:
         mock_client._session.get_call_metadata.return_value = []
         return DevicesApi(mock_client)
 
-    def _make_light_device_mock(self, device_id: str = "dev-1") -> MagicMock:
-        mock_light_device = MagicMock()
-        mock_light_device.WhichOneof.return_value = "hub_device"
-        mock_light_device.hub_device.common_device.profile.id = device_id
-        mock_light_device.hub_device.common_device.profile.name = "Sensor"
-        mock_light_device.hub_device.common_device.profile.room_id = ""
-        mock_light_device.hub_device.common_device.profile.group_id = ""
-        mock_light_device.hub_device.common_device.profile.malfunctions = 0
-        mock_light_device.hub_device.common_device.profile.bypassed = False
-        mock_light_device.hub_device.common_device.profile.states = []
-        mock_light_device.hub_device.common_device.profile.statuses = []
-        mock_light_device.hub_device.common_device.hub_id = "hub-1"
-        mock_light_device.hub_device.common_device.object_type.WhichOneof.return_value = (
-            "door_protect"
-        )
-        return mock_light_device
-
     @pytest.mark.asyncio
     async def test_snapshot_calls_on_devices_snapshot(self) -> None:
         """Initial snapshot triggers on_devices_snapshot callback."""
         api = self._make_api()
-        mock_light_device = self._make_light_device_mock("dev-1")
+        mock_light_device = _make_light_device_mock("dev-1")
 
         mock_msg = MagicMock()
         mock_msg.HasField.side_effect = lambda field: field == "success"
@@ -2837,11 +2935,11 @@ class TestStartDeviceStream:
         async def _aiter() -> AsyncGenerator[MagicMock, None]:
             yield mock_msg
 
-        snapshot_received: list[list[Device]] = []
+        snapshot_received: list[tuple[list[Device], bool]] = []
         status_received: list[tuple[str, str, dict]] = []
 
-        def on_snap(devices: list) -> None:
-            snapshot_received.append(devices)
+        def on_snap(devices: list, *, complete: bool = False) -> None:
+            snapshot_received.append((devices, complete))
 
         def on_status(device_id: str, status_name: str, data: dict) -> None:
             status_received.append((device_id, status_name, data))
@@ -2856,8 +2954,12 @@ class TestStartDeviceStream:
                 await asyncio.wait_for(task, timeout=2.0)
 
         assert len(snapshot_received) == 1
-        assert len(snapshot_received[0]) == 1
-        assert snapshot_received[0][0].id == "dev-1"
+        devices, complete = snapshot_received[0]
+        assert len(devices) == 1
+        assert devices[0].id == "dev-1"
+        # The stream's leading snapshot is the space's complete device list —
+        # the flag the coordinator's membership resync keys off (#422).
+        assert complete is True
         assert status_received == []
 
     @pytest.mark.asyncio
@@ -2882,7 +2984,7 @@ class TestStartDeviceStream:
 
         status_received: list[tuple[str, str, dict]] = []
 
-        def on_snap(devices: list) -> None:
+        def on_snap(devices: list, *, complete: bool = False) -> None:
             pass
 
         def on_status(device_id: str, status_name: str, data: dict) -> None:
@@ -2925,7 +3027,7 @@ class TestStartDeviceStream:
 
         status_received: list[tuple[str, str, dict]] = []
 
-        def on_snap(devices: list) -> None:
+        def on_snap(devices: list, *, complete: bool = False) -> None:
             pass
 
         def on_status(device_id: str, status_name: str, data: dict) -> None:
@@ -2967,7 +3069,7 @@ class TestStartDeviceStream:
 
         status_received: list[tuple[str, str, dict]] = []
 
-        def on_snap(devices: list) -> None:
+        def on_snap(devices: list, *, complete: bool = False) -> None:
             pass
 
         def on_status(device_id: str, status_name: str, data: dict) -> None:
@@ -3011,7 +3113,7 @@ class TestStartDeviceStream:
 
         status_received: list[tuple[str, str, dict]] = []
 
-        def on_snap(devices: list) -> None:
+        def on_snap(devices: list, *, complete: bool = False) -> None:
             pass
 
         def on_status(device_id: str, status_name: str, data: dict) -> None:
@@ -3037,7 +3139,7 @@ class TestStartDeviceStream:
     async def test_snapshot_update_calls_on_devices_snapshot(self) -> None:
         """snapshot_update in Updates triggers on_devices_snapshot."""
         api = self._make_api()
-        mock_light_device = self._make_light_device_mock("dev-77")
+        mock_light_device = _make_light_device_mock("dev-77")
 
         update_msg = MagicMock()
         update_msg.HasField.side_effect = lambda field: field == "success"
@@ -3045,6 +3147,7 @@ class TestStartDeviceStream:
 
         single_update = MagicMock()
         single_update.WhichOneof.return_value = "snapshot_update"
+        single_update.snapshot_update.update_type = 2  # UPDATE
         single_update.snapshot_update.light_device = mock_light_device
 
         update_msg.success.updates.updates = [single_update]
@@ -3052,10 +3155,10 @@ class TestStartDeviceStream:
         async def _aiter() -> AsyncGenerator[MagicMock, None]:
             yield update_msg
 
-        snapshot_received: list[list] = []
+        snapshot_received: list[tuple[list, bool]] = []
 
-        def on_snap(devices: list) -> None:
-            snapshot_received.append(devices)
+        def on_snap(devices: list, *, complete: bool = False) -> None:
+            snapshot_received.append((devices, complete))
 
         def on_status(device_id: str, status_name: str, data: dict) -> None:
             pass
@@ -3070,7 +3173,53 @@ class TestStartDeviceStream:
                 await asyncio.wait_for(task, timeout=2.0)
 
         assert len(snapshot_received) == 1
-        assert snapshot_received[0][0].id == "dev-77"
+        devices, complete = snapshot_received[0]
+        assert devices[0].id == "dev-77"
+        # A single-device refresh is NOT a complete space list — it must never
+        # trigger the coordinator's membership resync (#422).
+        assert complete is False
+
+    @pytest.mark.asyncio
+    async def test_snapshot_update_remove_reaches_on_device_removed(self) -> None:
+        """The stream loop threads `on_device_removed` through to
+        `_handle_update`: a REMOVE update ends in the removal callback,
+        not in a merge (#422)."""
+        api = self._make_api()
+
+        update_msg = MagicMock()
+        update_msg.HasField.side_effect = lambda field: field == "success"
+        update_msg.success.WhichOneof.return_value = "updates"
+
+        single_update = MagicMock()
+        single_update.WhichOneof.return_value = "snapshot_update"
+        single_update.snapshot_update.update_type = 3  # UPDATE_TYPE_REMOVE
+        single_update.device_id.hub_light_device_id.device_id = "dev-gone"
+
+        update_msg.success.updates.updates = [single_update]
+
+        async def _aiter() -> AsyncGenerator[MagicMock, None]:
+            yield update_msg
+
+        removed: list[str] = []
+
+        def on_snap(devices: list, *, complete: bool = False) -> None:
+            pytest.fail("REMOVE must not merge")
+
+        def on_status(device_id: str, status_name: str, data: dict) -> None:
+            pytest.fail("REMOVE is not a status update")
+
+        with (
+            patch.dict("sys.modules", _make_stream_patch_modules(_aiter)),
+            patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+        ):
+            mock_sleep.side_effect = asyncio.CancelledError()
+            task = await api.start_device_stream(
+                "space-1", on_snap, on_status, on_device_removed=removed.append
+            )
+            with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+                await asyncio.wait_for(task, timeout=2.0)
+
+        assert removed == ["dev-gone"]
 
     @pytest.mark.asyncio
     async def test_failure_message_reconnects(self) -> None:
@@ -3087,7 +3236,7 @@ class TestStartDeviceStream:
             call_count += 1
             yield failure_msg
 
-        def on_snap(devices: list) -> None:
+        def on_snap(devices: list, *, complete: bool = False) -> None:
             pass
 
         def on_status(device_id: str, status_name: str, data: dict) -> None:
@@ -3116,7 +3265,7 @@ class TestStartDeviceStream:
             return
             yield  # make this an async generator
 
-        def on_snap(devices: list) -> None:
+        def on_snap(devices: list, *, complete: bool = False) -> None:
             pass
 
         def on_status(device_id: str, status_name: str, data: dict) -> None:
@@ -3147,9 +3296,9 @@ class TestStartDeviceStream:
         same connection).
         """
         api = self._make_api()
-        good_a = self._make_light_device_mock("dev-good-a")
-        bad = self._make_light_device_mock("dev-bad")
-        good_b = self._make_light_device_mock("dev-good-b")
+        good_a = _make_light_device_mock("dev-good-a")
+        bad = _make_light_device_mock("dev-bad")
+        good_b = _make_light_device_mock("dev-good-b")
 
         # Make `bad` raise during parsing. Using WhichOneof so the failure
         # mirrors a real proto-shape mismatch surfaced at attribute access.
@@ -3167,7 +3316,7 @@ class TestStartDeviceStream:
 
         snapshot_received: list[list[Device]] = []
 
-        def on_snap(devices: list) -> None:
+        def on_snap(devices: list, *, complete: bool = False) -> None:
             snapshot_received.append(devices)
 
         def on_status(device_id: str, status_name: str, data: dict) -> None:
@@ -3228,7 +3377,7 @@ class TestStartDeviceStream:
 
         status_received: list[tuple[str, str, dict]] = []
 
-        def on_snap(devices: list) -> None:
+        def on_snap(devices: list, *, complete: bool = False) -> None:
             pass
 
         def on_status(device_id: str, status_name: str, data: dict) -> None:
@@ -3250,7 +3399,7 @@ class TestStartDeviceStream:
     async def test_snapshot_update_parse_exception_is_isolated(self) -> None:
         """A bad snapshot_update is dropped without crashing the stream."""
         api = self._make_api()
-        bad = self._make_light_device_mock("dev-bad")
+        bad = _make_light_device_mock("dev-bad")
         bad.WhichOneof.side_effect = TypeError("boom")
 
         update_msg = MagicMock()
@@ -3268,7 +3417,7 @@ class TestStartDeviceStream:
 
         snapshot_received: list[list] = []
 
-        def on_snap(devices: list) -> None:
+        def on_snap(devices: list, *, complete: bool = False) -> None:
             snapshot_received.append(devices)
 
         def on_status(device_id: str, status_name: str, data: dict) -> None:
@@ -3412,7 +3561,7 @@ class TestSnapshotReplay:
 
         devices_seen: list[Device] = []
 
-        def on_snap(devices: list[Device]) -> None:
+        def on_snap(devices: list[Device], *, complete: bool = False) -> None:
             devices_seen.extend(devices)
 
         def on_status(device_id: str, status_name: str, data: dict) -> None:

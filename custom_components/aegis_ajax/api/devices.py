@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from custom_components.aegis_ajax.api import devices_parser
 from custom_components.aegis_ajax.api.devices_parser import (
@@ -39,6 +39,24 @@ _PROBE_CLIENT_VERSION = "3.60"
 # SmartLockType enum values (common.space.smartlock.SmartLockType).
 _SMART_LOCK_TYPE_ASSA_ABLOY = 1
 _SMART_LOCK_TYPE_ASSA_ABLOY_NA = 2
+
+# `SnapshotUpdate.update_type` value marking a device deletion
+# (mobilegwsvc.commonmodels.response.UpdateType.UPDATE_TYPE_REMOVE). The app
+# drops the row on this signal; merging the residual record instead is what
+# left ghost "Unnamed" devices behind after a panel-side delete (#422).
+_UPDATE_TYPE_REMOVE = 3
+
+
+class _DevicesSnapshotHandler(Protocol):
+    """Receiver for parsed device snapshots off the stream.
+
+    `complete=True` marks the space's complete device list (the stream's
+    leading snapshot on every (re)connect); single-device refreshes leave it
+    False so the consumer never treats them as authoritative for membership
+    (#422).
+    """
+
+    def __call__(self, devices: list[Device], *, complete: bool = ...) -> None: ...
 
 
 def _override_client_version(
@@ -569,14 +587,21 @@ class DevicesApi:
     def _handle_update(
         self,
         update: Any,  # noqa: ANN401
-        on_devices_snapshot: Callable[[list[Device]], None],
+        on_devices_snapshot: _DevicesSnapshotHandler,
         on_status_update: Callable[[str, str, dict[str, Any]], None],
+        on_device_removed: Callable[[str], None] | None = None,
     ) -> None:
         """Dispatch a single LightDeviceUpdate.
 
         Extracted out of the stream loop so the caller can wrap each
         update in try/except — one bad update must not kill the inner
         async-for loop (#119).
+
+        A `snapshot_update` carrying `update_type=REMOVE` is a device
+        deletion (#422): it goes to `on_device_removed` and is never merged.
+        With no removal handler wired the update is dropped, not merged —
+        merging the stripped residual record is what produced ghost
+        "Unnamed" devices.
         """
         update_kind = update.WhichOneof("update")
         if update_kind == "status_update":
@@ -683,9 +708,44 @@ class DevicesApi:
 
             on_status_update(device_id, status_name, payload)
         elif update_kind == "snapshot_update":
+            if int(update.snapshot_update.update_type) == _UPDATE_TYPE_REMOVE:
+                self._dispatch_device_removed(update, on_device_removed)
+                return
             device = self.parse_device(update.snapshot_update.light_device)
             if device is not None:
                 on_devices_snapshot([device])
+
+    def _dispatch_device_removed(
+        self,
+        update: Any,  # noqa: ANN401
+        on_device_removed: Callable[[str], None] | None,
+    ) -> None:
+        """Resolve a snapshot REMOVE's device id and hand it over (#422).
+
+        The envelope `device_id` is authoritative; the residual
+        `light_device` record is the fallback (it still carries its own id).
+        The record itself is never merged — it arrives stripped server-side.
+        """
+        try:
+            device_id = str(update.device_id.hub_light_device_id.device_id)
+        except AttributeError:
+            device_id = ""
+        if not device_id:
+            try:
+                parsed = self.parse_device(update.snapshot_update.light_device)
+            except Exception:  # noqa: BLE001
+                parsed = None
+            device_id = parsed.id if parsed is not None else ""
+        if not device_id:
+            _LOGGER.debug("Snapshot REMOVE carried no resolvable device id — dropped")
+            return
+        if on_device_removed is None:
+            _LOGGER.debug(
+                "Snapshot REMOVE for device %s with no removal handler wired — dropped",
+                device_id,
+            )
+            return
+        on_device_removed(device_id)
 
     # A dead stream that has stayed quiet at least this long (seconds) before
     # erroring looks like a network idle-timeout drop rather than a reset during
@@ -725,19 +785,24 @@ class DevicesApi:
     async def start_device_stream(
         self,
         space_id: str,
-        on_devices_snapshot: Callable[[list[Device]], None],
+        on_devices_snapshot: _DevicesSnapshotHandler,
         on_status_update: Callable[[str, str, dict[str, Any]], None],
+        on_device_removed: Callable[[str], None] | None = None,
     ) -> asyncio.Task[None]:
         """Start persistent gRPC stream for real-time device updates.
 
         Returns a background asyncio.Task that keeps the stream open indefinitely,
         reconnecting with exponential backoff on errors.
 
-        on_devices_snapshot(devices) is called with the initial snapshot and on
-        full snapshot_update events.
+        on_devices_snapshot(devices) is called with the initial snapshot
+        (`complete=True` — the space's complete device list) and on full
+        snapshot_update events (`complete=False` — a single-device refresh).
 
         on_status_update(device_id, status_name, data) is called for each status
         change, where data contains {"op": int} (1=ADD, 2=UPDATE, 3=REMOVE).
+
+        on_device_removed(device_id) is called when the stream reports a
+        device deletion (`snapshot_update` with `update_type=REMOVE`, #422).
         """
 
         async def _run_stream() -> None:
@@ -784,7 +849,9 @@ class DevicesApi:
                                         continue
                                     if device is not None:
                                         devices.append(device)
-                                on_devices_snapshot(self._dedupe_and_track_aliases(devices))
+                                on_devices_snapshot(
+                                    self._dedupe_and_track_aliases(devices), complete=True
+                                )
                                 # Reset backoff after successful snapshot
                                 backoff = 5.0
                             elif which == "updates":
@@ -795,7 +862,10 @@ class DevicesApi:
                                     # See #119 hardening notes.
                                     try:
                                         self._handle_update(
-                                            update, on_devices_snapshot, on_status_update
+                                            update,
+                                            on_devices_snapshot,
+                                            on_status_update,
+                                            on_device_removed,
                                         )
                                     except Exception:  # noqa: BLE001
                                         _LOGGER.warning(

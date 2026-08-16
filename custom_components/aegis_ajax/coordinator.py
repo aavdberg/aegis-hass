@@ -2259,11 +2259,26 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _start_device_streams(self) -> None:
         """Start persistent device streams for all spaces."""
         for space_id in self._space_ids:
+
+            def _on_snapshot(
+                devices: list[Device],
+                *,
+                complete: bool = False,
+                _space_id: str = space_id,
+            ) -> None:
+                # The stream's leading snapshot is the space's complete
+                # device list — the one moment membership can be resynced
+                # (#422). Single-device refreshes pass complete=False.
+                self._handle_devices_snapshot(
+                    devices, complete_for_space=_space_id if complete else None
+                )
+
             try:
                 task = await self._devices_api.start_device_stream(
                     space_id,
-                    on_devices_snapshot=self._handle_devices_snapshot,
+                    on_devices_snapshot=_on_snapshot,
                     on_status_update=self._handle_status_update,
+                    on_device_removed=self._handle_device_removed,
                 )
                 self._stream_tasks.append(task)
                 _LOGGER.debug("Device stream started for space %s", space_id)
@@ -2366,9 +2381,18 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.async_set_updated_data({"spaces": self.spaces, "devices": self.devices})
 
     def _handle_devices_snapshot(
-        self, devices: list[Device], *, notify_listeners: bool = True
+        self,
+        devices: list[Device],
+        *,
+        notify_listeners: bool = True,
+        complete_for_space: str | None = None,
     ) -> None:
         """Handle initial snapshot or full device snapshot update from stream.
+
+        When `complete_for_space` names a space, `devices` is that space's
+        complete device list and membership is resynced after the merge:
+        devices of that hub the list no longer contains are dropped from
+        tracking (#422).
 
         Emits one DEBUG line per snapshot, which is the observable this path was
         missing entirely (#403). @wip3out3r went looking for it and found there
@@ -2509,6 +2533,45 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     # so an earlier carry is superseded.
                     self._hts_carried_deactivation_ids.discard(device.id)
             self.devices[device.id] = device
+        # A complete per-space snapshot is authoritative for membership: a
+        # device of this hub the list no longer contains was deleted
+        # panel-side, possibly while we were away (#422). Drop it from
+        # tracking so its entities stop claiming state and its registry card
+        # becomes deletable via `async_remove_config_entry_device`. The
+        # registry entry is deliberately NOT removed here: absence is weaker
+        # evidence than the stream's explicit REMOVE — a parse-skip absents a
+        # live device (#383) — and a wrong registry delete costs the user's
+        # area/name customizations. The hub itself never rides on absence,
+        # whatever the list says.
+        if complete_for_space is not None:
+            space = self.spaces.get(complete_for_space)
+            hub_id = space.hub_id if space is not None else None
+            if hub_id:
+                snapshot_ids = {device.id for device in devices}
+                stale_ids = [
+                    device_id
+                    for device_id, device in self.devices.items()
+                    if device.hub_id == hub_id
+                    and device_id not in snapshot_ids
+                    and not device.device_type.startswith("hub")
+                ]
+                for device_id in stale_ids:
+                    del self.devices[device_id]
+                    self._hts_carried_deactivation_ids.discard(device_id)
+                if stale_ids:
+                    _LOGGER.info(
+                        "%d device(s) no longer in the hub's device list for "
+                        "space %s; dropped from tracking — their Home Assistant "
+                        "device entries can now be deleted from the device page "
+                        "(#422)",
+                        len(stale_ids),
+                        complete_for_space,
+                    )
+            else:
+                _LOGGER.debug(
+                    "Complete snapshot for unknown space %s — membership resync skipped",
+                    complete_for_space,
+                )
         # `DevicesApi` dedups video-doorbell twins per snapshot, but the merge
         # above only ever *adds* keys — a `motion_cam_video_*` ghost that was
         # warm-started from the cache before its `video_edge_*` sibling
@@ -2575,6 +2638,35 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     ghost.device_type,
                 )
                 device_reg.async_remove_device(reg_device.id)
+
+    def _handle_device_removed(self, device_id: str) -> None:
+        """Handle the stream's explicit device REMOVE (#422).
+
+        Deleting a device in the Ajax app arrives as a `snapshot_update`
+        with `update_type=REMOVE`. That is an affirmative server statement —
+        unlike absence from a possibly-degraded snapshot (#419) — so it is
+        the one signal trusted to delete the device everywhere: coordinator
+        state, the warm-start cache, and the HA device registry (HA cascades
+        the entity-registry cleanup). If it ever fired wrongly, the next
+        snapshot re-adds the device and its entities return on reload.
+        """
+        device = self.devices.pop(device_id, None)
+        self._hts_carried_deactivation_ids.discard(device_id)
+        device_reg = dr.async_get(self.hass)
+        reg_device = device_reg.async_get_device(identifiers={(DOMAIN, device_id)})
+        if reg_device is not None:
+            device_reg.async_remove_device(reg_device.id)
+        if device is None and reg_device is None:
+            _LOGGER.debug("Stream REMOVE for untracked device %s — nothing to drop", device_id)
+            return
+        _LOGGER.info(
+            "Device %s (%s) was removed on the panel side; removed from Home Assistant (#422)",
+            device_id,
+            device.device_type if device is not None else "not tracked",
+        )
+        self.async_set_updated_data({"spaces": self.spaces, "devices": self.devices})
+        if self._devices_cache is not None:
+            self._devices_cache.async_schedule_save(self.devices)
 
     def _handle_status_update(self, device_id: str, status_name: str, data: dict[str, Any]) -> None:
         """Handle real-time status update from the persistent stream.

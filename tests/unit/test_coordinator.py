@@ -1270,6 +1270,95 @@ class TestStreamHandlers:
         assert "310A8DF4" not in coordinator.devices
         device_reg.async_remove_device.assert_not_called()
 
+    def test_handle_device_removed_evicts_device_registry_and_cache(self) -> None:
+        """#422 — the stream's explicit REMOVE (a device deleted in the Ajax
+        app) deletes the device everywhere: coordinator state, HA device
+        registry, warm-start cache."""
+        coordinator = self._make_coordinator_with_stream()
+        coordinator.devices["d1"] = _make_device("d1")
+        coordinator._hts_carried_deactivation_ids.add("d1")
+        coordinator._devices_cache = MagicMock()
+
+        reg_device = MagicMock()
+        reg_device.id = "reg-d1"
+        device_reg = MagicMock()
+        device_reg.async_get_device.return_value = reg_device
+
+        with patch(
+            "custom_components.aegis_ajax.coordinator.dr.async_get", return_value=device_reg
+        ):
+            coordinator._handle_device_removed("d1")
+
+        assert "d1" not in coordinator.devices
+        assert "d1" not in coordinator._hts_carried_deactivation_ids
+        device_reg.async_remove_device.assert_called_once_with("reg-d1")
+        coordinator.async_set_updated_data.assert_called_once()
+        coordinator._devices_cache.async_schedule_save.assert_called_once()
+
+    def test_handle_device_removed_unknown_id_is_quiet(self) -> None:
+        """A REMOVE for a device we never tracked (and with no registry
+        entry) must not notify listeners or rewrite the cache."""
+        coordinator = self._make_coordinator_with_stream()
+        coordinator._devices_cache = MagicMock()
+        device_reg = MagicMock()
+        device_reg.async_get_device.return_value = None
+
+        with patch(
+            "custom_components.aegis_ajax.coordinator.dr.async_get", return_value=device_reg
+        ):
+            coordinator._handle_device_removed("never-seen")
+
+        device_reg.async_remove_device.assert_not_called()
+        coordinator.async_set_updated_data.assert_not_called()
+        coordinator._devices_cache.async_schedule_save.assert_not_called()
+
+    def test_complete_snapshot_drops_absent_devices_of_its_hub(self) -> None:
+        """#422 — a complete per-space snapshot is authoritative for
+        membership: devices of that hub missing from the list are dropped
+        from tracking. The hub itself and other hubs' devices are untouched,
+        and the registry entry is deliberately NOT auto-removed — absence is
+        weaker evidence than the explicit REMOVE (#419, #383)."""
+        coordinator = self._make_coordinator_with_stream()
+        coordinator.spaces = {"s1": _make_space("s1")}  # hub-1
+        present = _make_device("d1")
+        stale = _make_device("d2")
+        hub = replace(_make_device("hub-1"), device_type="hub_2")
+        other_hub_device = replace(_make_device("d9"), hub_id="hub-2")
+        for device in (present, stale, hub, other_hub_device):
+            coordinator.devices[device.id] = device
+        coordinator._hts_carried_deactivation_ids.add("d2")
+
+        device_reg = MagicMock()
+        with patch(
+            "custom_components.aegis_ajax.coordinator.dr.async_get", return_value=device_reg
+        ):
+            # The hub is deliberately absent from the list too — it must
+            # survive on its device_type guard, whatever the list says.
+            coordinator._handle_devices_snapshot([present], complete_for_space="s1")
+
+        assert set(coordinator.devices) == {"d1", "hub-1", "d9"}
+        assert "d2" not in coordinator._hts_carried_deactivation_ids
+        device_reg.async_remove_device.assert_not_called()
+
+    def test_complete_snapshot_for_unknown_space_drops_nothing(self) -> None:
+        coordinator = self._make_coordinator_with_stream()
+        coordinator.devices["d2"] = _make_device("d2")
+
+        coordinator._handle_devices_snapshot([_make_device("d1")], complete_for_space="ghost-space")
+
+        assert set(coordinator.devices) == {"d1", "d2"}
+
+    def test_single_device_snapshot_never_drops_others(self) -> None:
+        """A `snapshot_update` refresh of one device (complete_for_space
+        unset) must never resync membership."""
+        coordinator = self._make_coordinator_with_stream()
+        coordinator.spaces = {"s1": _make_space("s1")}
+        coordinator.devices["d2"] = _make_device("d2")
+
+        coordinator._handle_devices_snapshot([_make_device("d1")])
+
+        assert set(coordinator.devices) == {"d1", "d2"}
+
     def test_handle_status_update_add_sets_status_true(self) -> None:
         coordinator = self._make_coordinator_with_stream()
         coordinator.devices["d1"] = _make_device("d1")
@@ -1850,11 +1939,19 @@ class TestStreamHandlers:
 
         result = await coordinator._async_update_data()
 
-        coordinator._devices_api.start_device_stream.assert_called_once_with(
-            "s1",
-            on_devices_snapshot=coordinator._handle_devices_snapshot,
-            on_status_update=coordinator._handle_status_update,
-        )
+        coordinator._devices_api.start_device_stream.assert_called_once()
+        call = coordinator._devices_api.start_device_stream.call_args
+        assert call.args == ("s1",)
+        # The snapshot handler is a per-space closure that threads the
+        # `complete` flag into the membership resync (#422).
+        assert callable(call.kwargs["on_devices_snapshot"])
+        assert call.kwargs["on_status_update"] == coordinator._handle_status_update
+        assert call.kwargs["on_device_removed"] == coordinator._handle_device_removed
+        coordinator._handle_devices_snapshot = MagicMock()
+        call.kwargs["on_devices_snapshot"]([], complete=True)
+        coordinator._handle_devices_snapshot.assert_called_with([], complete_for_space="s1")
+        call.kwargs["on_devices_snapshot"]([])
+        coordinator._handle_devices_snapshot.assert_called_with([], complete_for_space=None)
         assert coordinator._streams_started is True
         assert mock_task in coordinator._stream_tasks
         assert "spaces" in result
