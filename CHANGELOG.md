@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.16.3] - unreleased
 
 ### Fixed
 - **A device deleted in the Ajax app is now deleted in Home Assistant too (#422).** The device stream announces a deletion explicitly, carrying a stripped residual record of the deleted device. The integration ignored the deletion marker and treated the notice as a regular update — so instead of removing the device it merged the residual back in, which also overwrote the device's name with the empty one the residual carries. That is the reporter's "Unnamed device": a ghost kept alive by the very message that should have removed it, surviving reloads through the warm-start cache, and undeletable by hand because Home Assistant only offers "Delete device" when the integration implements the removal hook. Three changes, none of them adding a single request to Ajax:
