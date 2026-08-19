@@ -5,13 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.16.3] - unreleased
+## [1.17.0] - 2026-08-19
+
+Consolidates `1.16.3-beta.1` unchanged — the beta and the stable are the same bits. Validated by @lexius on the reporting install (ghost deleted, live removals working), with a clean regression soak on a second install. The version is MINOR rather than PATCH because the release adds user-visible capability: "Delete device" on the integration's device pages.
 
 ### Fixed
 - **A device deleted in the Ajax app is now deleted in Home Assistant too (#422).** The device stream announces a deletion explicitly, carrying a stripped residual record of the deleted device. The integration ignored the deletion marker and treated the notice as a regular update — so instead of removing the device it merged the residual back in, which also overwrote the device's name with the empty one the residual carries. That is the reporter's "Unnamed device": a ghost kept alive by the very message that should have removed it, surviving reloads through the warm-start cache, and undeletable by hand because Home Assistant only offers "Delete device" when the integration implements the removal hook. Three changes, none of them adding a single request to Ajax:
   - The deletion notice now removes the device everywhere — entities, device registry card, warm-start cache — the moment it arrives.
   - The complete device list the hub sends on every stream reconnect now resyncs membership: devices the hub no longer reports (deleted while Home Assistant was offline, or ghosts predating this fix) stop claiming state. Their leftover card is deliberately not auto-deleted — absence is weaker evidence than an explicit deletion notice, and a wrong delete would cost the card's area and name customizations.
   - "Delete device" now appears on the integration's device pages, and works for any device the hub no longer reports. Devices still alive on the hub are refused, and a wrongly deleted card re-creates itself from the next snapshot.
+
+### Documentation
+- README: the device-removal lifecycle (automatic on app-side deletions, manual "Delete device" for leftovers) added to the Features list — it shipped with this release and was otherwise undocumented outside the CHANGELOG.
 
 ## [1.16.2] - 2026-08-09
 
