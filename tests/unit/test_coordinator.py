@@ -1003,21 +1003,45 @@ class TestStreamHandlers:
 
         assert coordinator.devices["d1"].statuses["signal_strength"] == 3
 
-    def test_temperature_is_deliberately_not_in_the_carry_forward_list(self) -> None:
-        """Records that part of #403 is knowingly unfixed.
+    def test_temperature_is_in_the_carry_forward_list(self) -> None:
+        """Records that the temperature exclusion was deliberately overturned.
 
-        Seven of his nine temperatures emptied — the light-stream families, which
-        the `HUB_DEVICE_TEMPERATURE_DEVICE_TYPES` block does not cover. Adding
-        `temperature` here would fix those and would also break
-        `test_snapshot_does_not_invent_temperature_for_non_siren`, which pins the
-        opposite deliberately. Pinned as a decision so the next person finds the
-        conflict instead of discovering it by breaking that test.
+        The exclusion pinned a worry that carrying temperature would "invent"
+        one for families with no per-device temperature source. It cannot: the
+        carry only fills a key already present in the existing statuses, so a
+        device that never reported a temperature never gains one — pinned by
+        `test_snapshot_does_not_invent_temperature_the_device_never_reported`.
+        Meanwhile seven of the nine temperatures that emptied in #403 were
+        light-stream families the siren-gated carry never covered.
         """
         from custom_components.aegis_ajax.coordinator import (
             _SNAPSHOT_CARRY_FORWARD_STATUS_KEYS,
         )
 
-        assert "temperature" not in _SNAPSHOT_CARRY_FORWARD_STATUS_KEYS
+        assert "temperature" in _SNAPSHOT_CARRY_FORWARD_STATUS_KEYS
+
+    def test_snapshot_carries_temperature_forward_for_light_stream_family(self) -> None:
+        """A door_protect is not a siren: only the generic carry can reach it."""
+        coordinator = self._make_coordinator_with_stream()
+        coordinator.devices["d1"] = _make_device("d1", statuses={"temperature": 18.0})
+
+        coordinator._handle_devices_snapshot([_make_device("d1")])
+
+        assert coordinator.devices["d1"].statuses["temperature"] == 18.0
+
+    def test_snapshot_does_not_invent_temperature_the_device_never_reported(self) -> None:
+        """The half of the old exclusion worth keeping: a carry is not an invention.
+
+        A family with no per-device temperature source never has one in its
+        existing statuses, so there is nothing to fill and no device ends up
+        holding a temperature it never reported.
+        """
+        coordinator = self._make_coordinator_with_stream()
+        coordinator.devices["d1"] = _make_device("d1", statuses={"signal_strength": 3})
+
+        coordinator._handle_devices_snapshot([_make_device("d1")])
+
+        assert "temperature" not in coordinator.devices["d1"].statuses
 
     def test_snapshot_does_not_carry_an_operational_alert_forward(self) -> None:
         """The reason the carry list is named rather than a blanket merge.
@@ -3768,17 +3792,6 @@ class TestHubDeviceTemperatureRefresh:
         coordinator._handle_devices_snapshot([_make_siren("s1d")])
 
         assert coordinator.devices["s1d"].statuses["temperature"] == 22.0
-
-    def test_snapshot_does_not_invent_temperature_for_non_siren(self) -> None:
-        coordinator = _make_coordinator()
-        coordinator._devices_cache = None
-        coordinator.async_set_updated_data = MagicMock()
-        coordinator.devices = {"d1": replace(_make_device("d1"), statuses={"temperature": 18.0})}
-
-        # A door_protect is not in the siren set; carry-forward must not apply.
-        coordinator._handle_devices_snapshot([_make_device("d1")])
-
-        assert "temperature" not in coordinator.devices["d1"].statuses
 
 
 class TestSirenSettingsRefresh:
