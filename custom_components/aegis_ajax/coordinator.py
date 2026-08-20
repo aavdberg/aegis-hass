@@ -187,17 +187,20 @@ _HTS_TAMPER_ROUTED_DEVICE_TYPES: frozenset[str] = frozenset(
 # had: a snapshot omitting a *measurement* does not make the previous value
 # wrong, only older. Anything whose absence is itself the signal stays out.
 #
-# `temperature` is deliberately NOT here, and that leaves part of #403 unfixed.
-# Seven of his nine temperatures emptied — the light-stream families, which the
-# block below does not cover because it is gated on
-# `HUB_DEVICE_TEMPERATURE_DEVICE_TYPES`. Adding it here fixes those, and it also
-# breaks `test_snapshot_does_not_invent_temperature_for_non_siren`, which pins the
-# opposite on purpose: a family with no per-device temperature source must not end
-# up holding one. Carrying only a value the device previously reported is not
-# "inventing" it, so the two may well be reconcilable — but overturning a pinned
-# decision wants evidence, not a convenient reading, and the warm-start cache
-# (#114) is a real way a bad value could become immortal once it is sticky. Left
-# open on the issue rather than settled here.
+# `temperature` was excluded here at first and #403 stayed open for it: the
+# worry was that a carry would leave a family with no per-device temperature
+# source holding one. It cannot — this pass only fills a key already present in
+# the existing statuses, so a device that never reported a temperature never
+# gains one (pinned by
+# `test_snapshot_does_not_invent_temperature_the_device_never_reported`). The
+# staleness/immortality risk is exactly the one already accepted for the four
+# keys above: a carried value is overwritten by the next row that reports one,
+# and seven of the nine temperatures that emptied in #403 were light-stream
+# families no siren-gated carry could reach. For the
+# `HUB_DEVICE_TEMPERATURE_DEVICE_TYPES` families the value arrives from a
+# separate per-device RPC (#220, #229), so EVERY light snapshot omits it — for
+# them this carry is what keeps the sensor valued between timer fires, a job a
+# siren-gated block used to do before this entry subsumed it.
 #
 # `tamper` and the siren settings keep their own blocks below — they carry
 # provenance conditions this generic pass has no business reproducing.
@@ -206,6 +209,7 @@ _SNAPSHOT_CARRY_FORWARD_STATUS_KEYS: frozenset[str] = frozenset(
         "humidity",
         "co2",
         "signal_strength",
+        "temperature",
     }
 )
 
@@ -2411,28 +2415,7 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         carried_battery_count = 0
         carried_deactivation_count = 0
         for device in devices:
-            # Per-device temperature (#220, #229) comes from a separate
-            # per-device RPC, not this stream, so a fresh snapshot would wipe
-            # the value we merged in `_async_refresh_hub_device_temperatures`
-            # and leave the sensor `unknown` until the next timer fire. Carry the
-            # previously-merged temperature forward (it's slow-moving; the
-            # periodic refresh still updates it).
             existing = self.devices.get(device.id)
-            if (
-                existing is not None
-                and device.device_type in HUB_DEVICE_TEMPERATURE_DEVICE_TYPES
-                and "temperature" not in device.statuses
-                and "temperature" in existing.statuses
-            ):
-                from dataclasses import replace as dc_replace  # noqa: PLC0415
-
-                device = dc_replace(
-                    device,
-                    statuses={
-                        **device.statuses,
-                        "temperature": existing.statuses["temperature"],
-                    },
-                )
             # An HTS-sourced case tamper (#339) has no counterpart in this
             # stream — on the hubs that need it the snapshot carries no tamper
             # field at all — so a fresh snapshot would drop the sensor back to
