@@ -53,6 +53,12 @@ class TestSensorTypes:
     def test_signal_strength_type_exists(self) -> None:
         assert "signal_strength" in SENSOR_TYPES
 
+    def test_nvr_channel_count_types_exist(self) -> None:
+        # #425: the NVR box's only per-row measurements are its channel
+        # counts; without descriptors the parsed device renders a bare card.
+        assert "channels_online" in SENSOR_TYPES
+        assert "channels_total" in SENSOR_TYPES
+
     def test_mobile_network_type_exists(self) -> None:
         assert "mobile_network_type" in SENSOR_TYPES
 
@@ -112,6 +118,53 @@ class TestAjaxSensor:
             coordinator=coordinator, device_id="dev-1", sensor_key="signal_strength"
         )
         assert sensor.native_value == "Normal"
+
+    def test_nvr_channel_counts(self) -> None:
+        # #425: the NVR box's channel counters ride `statuses` like any
+        # other status-sourced reading.
+        device = self._make_device({"channels_online": 6, "channels_total": 8})
+        coordinator = MagicMock()
+        coordinator.devices = {"dev-1": device}
+        online = AjaxSensor(
+            coordinator=coordinator, device_id="dev-1", sensor_key="channels_online"
+        )
+        total = AjaxSensor(coordinator=coordinator, device_id="dev-1", sensor_key="channels_total")
+        assert online.native_value == 6
+        assert total.native_value == 8
+
+    @pytest.mark.asyncio
+    async def test_nvr_channel_count_sensors_created_at_setup(self) -> None:
+        """Creation is gated on the keys being present, so only devices that
+        actually report channel counts (the NVR box, #425) grow the sensors."""
+        from custom_components.aegis_ajax.sensor import async_setup_entry
+
+        nvr = Device(
+            id="310B121D",
+            hub_id="310B121D",
+            name="NVR",
+            device_type="video_edge_nvr",
+            room_id=None,
+            group_id=None,
+            state=DeviceState.ONLINE,
+            malfunctions=0,
+            bypassed=False,
+            statuses={"channels_online": 6, "channels_total": 8, "video_edge_box": True},
+            battery=None,
+        )
+        coordinator = MagicMock()
+        coordinator.devices = {"310B121D": nvr}
+        coordinator.rooms = {}
+        coordinator.spaces = {}
+        coordinator.sim_info = {}
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+        added: list = []
+        with patch("custom_components.aegis_ajax.sensor._remove_orphan_outlet_power_derived"):
+            await async_setup_entry(MagicMock(), entry, added.extend)
+
+        keys = {getattr(e, "_sensor_key", None) for e in added}
+        assert "channels_online" in keys
+        assert "channels_total" in keys
 
     def test_native_value_returns_none_when_no_device(self) -> None:
         coordinator = MagicMock()

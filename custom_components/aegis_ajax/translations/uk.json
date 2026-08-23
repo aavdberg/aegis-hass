@@ -430,6 +430,12 @@
             },
             "power": {
                 "name": "Потужність"
+            },
+            "channels_online": {
+                "name": "Канали онлайн"
+            },
+            "channels_total": {
+                "name": "Всього каналів"
             }
         },
         "switch": {
