@@ -17,6 +17,7 @@ from custom_components.aegis_ajax.const import (
     DOMAIN,
     DOORBELL_DEVICE_TYPES,
     DOORBELL_EVENT_TYPE,
+    INTRUSION_ALARM_RAW_TAGS,
     MOTION_EVENT_TYPE,
     RAW_TAG_TO_GROUP_SECURITY_STATE,
     RAW_TAG_TO_SECURITY_STATE,
@@ -1192,6 +1193,15 @@ class AjaxNotificationListener:
         if not isinstance(raw_tag, str):
             return
         if not (self._hass.loop and self._hass.loop.is_running()):
+            return
+        # An intrusion alarm implies no arm-state transition — the space stays
+        # armed while the siren fires — so it marks the space in-alarm (#426)
+        # instead of writing a security_state.
+        if raw_tag in INTRUSION_ALARM_RAW_TAGS:
+            self._hass.loop.call_soon_threadsafe(
+                self._coordinator.note_intrusion_alarm,
+                space_id,
+            )
             return
         group_state = RAW_TAG_TO_GROUP_SECURITY_STATE.get(raw_tag)
         group_id = event_data.get("group_id")

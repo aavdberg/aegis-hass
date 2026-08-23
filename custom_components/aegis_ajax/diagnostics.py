@@ -94,6 +94,10 @@ async def async_get_config_entry_diagnostics(
             sid: {
                 "name_length": len(s.name or ""),
                 "security_state": s.security_state.name,
+                # The panel's `triggered` is a client-side overlay (#426), not
+                # part of the served security_state above — a dump that hides
+                # it can't explain a panel showing (or missing) an alarm.
+                "intrusion_alarm_active": sid in coordinator.alarmed_space_ids,
                 "online": s.is_online,
                 "malfunctions": s.malfunctions_count,
                 "group_mode_enabled": s.group_mode_enabled,

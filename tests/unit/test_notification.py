@@ -1864,11 +1864,35 @@ class TestApplySecurityStateFromEvent:
         hass.loop.call_soon_threadsafe.assert_not_called()
 
     def test_unmapped_tag_does_not_dispatch(self) -> None:
+        # `battery_low` fires an HA event but implies no security-state change
+        # and is not an intrusion alarm — nothing to dispatch.
         listener, hass, _ = self._make_listener()
+
+        listener._apply_security_state_from_event("space-1", {"raw_tag": "battery_low"})
+
+        hass.loop.call_soon_threadsafe.assert_not_called()
+
+    def test_intrusion_alarm_tag_dispatches_alarm_overlay(self) -> None:
+        # #426: the served SecurityState has no alarm value, so the intrusion
+        # push marks the space in-alarm instead of writing a state.
+        listener, hass, coordinator = self._make_listener()
 
         listener._apply_security_state_from_event("space-1", {"raw_tag": "intrusion_alarm"})
 
-        hass.loop.call_soon_threadsafe.assert_not_called()
+        hass.loop.call_soon_threadsafe.assert_called_once_with(
+            coordinator.note_intrusion_alarm, "space-1"
+        )
+
+    def test_intrusion_alarm_confirmed_tag_dispatches_alarm_overlay(self) -> None:
+        listener, hass, coordinator = self._make_listener()
+
+        listener._apply_security_state_from_event(
+            "space-1", {"raw_tag": "intrusion_alarm_confirmed"}
+        )
+
+        hass.loop.call_soon_threadsafe.assert_called_once_with(
+            coordinator.note_intrusion_alarm, "space-1"
+        )
 
     def test_missing_raw_tag_does_not_dispatch(self) -> None:
         listener, hass, _ = self._make_listener()

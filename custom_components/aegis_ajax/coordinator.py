@@ -453,6 +453,12 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.last_photo_urls: dict[str, str] = {}
         # space_id -> (expiry_time, security_state)
         self._optimistic_space_states: dict[str, tuple[float, Any]] = {}
+        # Spaces with an intrusion alarm push not yet acknowledged by an
+        # observed DISARMED (#426). Drives the panel's `triggered` overlay —
+        # the served SecurityState cannot express "alarm firing". In memory
+        # only, on purpose: never persisted or restored, so a reload/restart
+        # cannot resurrect a stale alarm.
+        self.alarmed_space_ids: set[str] = set()
         # SIM info is mostly static — cache and refresh once per hour
         self._sim_info_last_fetch: float = 0.0
         # Rooms rarely change — cache and refresh once per hour. None means
@@ -703,6 +709,7 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             await self._ensure_authenticated()
             self.spaces = await self._refresh_spaces()
+            self._drop_cleared_alarms()
             self._prune_manual_refresh()
             now = asyncio.get_running_loop().time()
             self._update_hub_offline_repairs(now)
@@ -2309,6 +2316,11 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         space = self.spaces.get(space_id)
         if space is None:
             return
+        # A push DISARM acknowledges any live intrusion alarm (#426) —
+        # dropped before the no-change/optimistic early returns below, so a
+        # disarm that races our own optimistic write still clears it.
+        if new_state in (SecurityState.DISARMED, SecurityState.NONE):
+            self.alarmed_space_ids.discard(space_id)
         # `time.monotonic()` is the same source `asyncio.BaseEventLoop.time()`
         # uses for the optimistic-state expiry stored from arm/disarm callsites.
         now = time.monotonic()
@@ -2361,6 +2373,41 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.spaces[space_id] = dc_replace(space, groups=new_groups)
         self.async_set_updated_data({"spaces": self.spaces, "devices": self.devices})
+
+    def note_intrusion_alarm(self, space_id: str) -> None:
+        """Mark a space as in-alarm from an intrusion push (#426).
+
+        The served `SecurityState` cannot express "alarm firing", so the
+        panel's `triggered` is a client-side overlay: set here from the
+        `intrusion_alarm` / `intrusion_alarm_confirmed` push, shown while the
+        space is in any armed state, and held until the space is next seen
+        DISARMED — via the push path (`apply_push_security_state`), an
+        HA-initiated disarm, or any poll re-read (`_drop_cleared_alarms`).
+        Runs on the event loop (marshalled from the FCM worker thread by the
+        caller). Unknown spaces are ignored — a push for a space this entry
+        doesn't manage must not create state.
+        """
+        if space_id not in self.spaces:
+            return
+        self.alarmed_space_ids.add(space_id)
+        self.async_set_updated_data({"spaces": self.spaces, "devices": self.devices})
+
+    def _drop_cleared_alarms(self) -> None:
+        """Drop the `triggered` overlay for spaces now seen DISARMED (#426).
+
+        Called after every full spaces rebuild so any server observation of a
+        disarm — polled or nudged — acknowledges the alarm. A space that is
+        no longer tracked has nothing to overlay either.
+        """
+        from custom_components.aegis_ajax.const import SecurityState  # noqa: PLC0415
+
+        for space_id in list(self.alarmed_space_ids):
+            space = self.spaces.get(space_id)
+            if space is None or space.security_state in (
+                SecurityState.DISARMED,
+                SecurityState.NONE,
+            ):
+                self.alarmed_space_ids.discard(space_id)
 
     def set_chime_optimistic(self, space_id: str, *, enable: bool) -> None:
         """Optimistically reflect a hub Chime toggle we just issued (#239).

@@ -3794,6 +3794,101 @@ class TestHubDeviceTemperatureRefresh:
         assert coordinator.devices["s1d"].statuses["temperature"] == 22.0
 
 
+class TestIntrusionAlarmOverlay:
+    """#426: `triggered` derived from the intrusion push, held until DISARMED.
+
+    The served `SecurityState` has no alarm value, so the overlay lives
+    client-side, in memory only — a reload/restart must never resurrect a
+    stale alarm.
+    """
+
+    def _make_space(self, state):  # noqa: ANN001, ANN202
+        from custom_components.aegis_ajax.api.models import Space
+        from custom_components.aegis_ajax.const import ConnectionStatus
+
+        return Space(
+            id="s1",
+            hub_id="h1",
+            name="Home",
+            security_state=state,
+            connection_status=ConnectionStatus.ONLINE,
+            malfunctions_count=0,
+        )
+
+    def _armed_coordinator(self):  # noqa: ANN202
+        from custom_components.aegis_ajax.const import SecurityState
+
+        coordinator = _make_coordinator()
+        coordinator.async_set_updated_data = MagicMock()
+        coordinator.spaces = {"s1": self._make_space(SecurityState.ARMED)}
+        return coordinator
+
+    def test_note_intrusion_alarm_marks_known_space(self) -> None:
+        coordinator = self._armed_coordinator()
+
+        coordinator.note_intrusion_alarm("s1")
+
+        assert "s1" in coordinator.alarmed_space_ids
+        coordinator.async_set_updated_data.assert_called_once()
+
+    def test_note_intrusion_alarm_ignores_unknown_space(self) -> None:
+        coordinator = self._armed_coordinator()
+
+        coordinator.note_intrusion_alarm("ghost")
+
+        assert "ghost" not in coordinator.alarmed_space_ids
+        coordinator.async_set_updated_data.assert_not_called()
+
+    def test_push_disarm_clears_the_overlay(self) -> None:
+        from custom_components.aegis_ajax.const import SecurityState
+
+        coordinator = self._armed_coordinator()
+        coordinator.note_intrusion_alarm("s1")
+
+        coordinator.apply_push_security_state("s1", SecurityState.DISARMED)
+
+        assert "s1" not in coordinator.alarmed_space_ids
+
+    def test_push_mode_switch_keeps_the_overlay(self) -> None:
+        """Only DISARMED acknowledges the alarm; an armed-mode change does not."""
+        from custom_components.aegis_ajax.const import SecurityState
+
+        coordinator = self._armed_coordinator()
+        coordinator.note_intrusion_alarm("s1")
+
+        coordinator.apply_push_security_state("s1", SecurityState.NIGHT_MODE)
+
+        assert "s1" in coordinator.alarmed_space_ids
+
+    def test_poll_observing_disarm_drops_the_overlay(self) -> None:
+        from custom_components.aegis_ajax.const import SecurityState
+
+        coordinator = self._armed_coordinator()
+        coordinator.note_intrusion_alarm("s1")
+        coordinator.spaces["s1"] = self._make_space(SecurityState.DISARMED)
+
+        coordinator._drop_cleared_alarms()
+
+        assert "s1" not in coordinator.alarmed_space_ids
+
+    def test_drop_clears_a_space_no_longer_tracked(self) -> None:
+        coordinator = self._armed_coordinator()
+        coordinator.note_intrusion_alarm("s1")
+        coordinator.spaces = {}
+
+        coordinator._drop_cleared_alarms()
+
+        assert "s1" not in coordinator.alarmed_space_ids
+
+    def test_drop_keeps_an_armed_space_in_alarm(self) -> None:
+        coordinator = self._armed_coordinator()
+        coordinator.note_intrusion_alarm("s1")
+
+        coordinator._drop_cleared_alarms()
+
+        assert "s1" in coordinator.alarmed_space_ids
+
+
 class TestSirenSettingsRefresh:
     """Timer-driven merge of siren settings from StreamHubDevice (#310)."""
 

@@ -191,6 +191,42 @@ class TestAlarmControlPanel:
         panel = AjaxAlarmControlPanel(coordinator=coordinator, space_id="s1")
         assert panel.alarm_state is None
 
+    # --- #426: `triggered` overlay from the intrusion push -------------------
+
+    def test_alarm_state_triggered_while_armed_and_alarm_active(self) -> None:
+        from homeassistant.components.alarm_control_panel import (
+            AlarmControlPanelState,  # type: ignore[attr-defined]
+        )
+
+        coordinator = MagicMock()
+        coordinator.spaces = {"s1": self._make_space(SecurityState.ARMED)}
+        coordinator.alarmed_space_ids = {"s1"}
+        panel = AjaxAlarmControlPanel(coordinator=coordinator, space_id="s1")
+        assert panel.alarm_state == AlarmControlPanelState.TRIGGERED
+
+    def test_alarm_state_triggered_overrides_night_mode(self) -> None:
+        from homeassistant.components.alarm_control_panel import (
+            AlarmControlPanelState,  # type: ignore[attr-defined]
+        )
+
+        coordinator = MagicMock()
+        coordinator.spaces = {"s1": self._make_space(SecurityState.NIGHT_MODE)}
+        coordinator.alarmed_space_ids = {"s1"}
+        panel = AjaxAlarmControlPanel(coordinator=coordinator, space_id="s1")
+        assert panel.alarm_state == AlarmControlPanelState.TRIGGERED
+
+    def test_alarm_state_not_triggered_once_disarmed(self) -> None:
+        """A stale overlay entry must never show through a disarmed panel."""
+        from homeassistant.components.alarm_control_panel import (
+            AlarmControlPanelState,  # type: ignore[attr-defined]
+        )
+
+        coordinator = MagicMock()
+        coordinator.spaces = {"s1": self._make_space(SecurityState.DISARMED)}
+        coordinator.alarmed_space_ids = {"s1"}
+        panel = AjaxAlarmControlPanel(coordinator=coordinator, space_id="s1")
+        assert panel.alarm_state == AlarmControlPanelState.DISARMED
+
     def test_alarm_state_partially_armed_with_night_mode_is_armed_night(self) -> None:
         # In group mode the server reports PARTIALLY_ARMED while night mode
         # is active; `night_mode_enabled` is the discriminator (#284).
