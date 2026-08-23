@@ -117,6 +117,25 @@ SENSOR_TYPES: dict[str, SensorTypeInfo] = {
         translation_key="wifi_signal_level",
         entity_registry_enabled_default=False,
     ),
+    # NVR/video-edge box channel counters (#425) — the only per-row
+    # measurements the recorder's light row carries. Creation is gated on
+    # the keys being present, so only the box grows these.
+    "channels_online": SensorTypeInfo(
+        None,
+        SensorStateClass.MEASUREMENT,
+        None,
+        "status",
+        None,
+        translation_key="channels_online",
+    ),
+    "channels_total": SensorTypeInfo(
+        None,
+        None,
+        None,
+        "status",
+        EntityCategory.DIAGNOSTIC,
+        translation_key="channels_total",
+    ),
 }
 
 
@@ -143,6 +162,8 @@ async def async_setup_entry(
             "signal_strength",
             "mobile_network_type",
             "wifi_signal_level",
+            "channels_online",
+            "channels_total",
         )
         for key in _status_sensor_keys:
             if _should_create_status_sensor(device, key):

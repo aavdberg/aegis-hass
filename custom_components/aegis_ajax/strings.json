@@ -461,6 +461,12 @@
             },
             "power_derived": {
                 "name": "Power"
+            },
+            "channels_online": {
+                "name": "Channels online"
+            },
+            "channels_total": {
+                "name": "Channels total"
             }
         },
         "switch": {

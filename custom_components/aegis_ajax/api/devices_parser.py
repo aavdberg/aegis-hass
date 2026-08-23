@@ -620,12 +620,77 @@ def _parse_spread_properties(hub_dev: Any) -> dict[str, Any]:  # noqa: ANN401
     return result
 
 
+def _parse_video_edge(edge: Any) -> Device | None:  # noqa: ANN401
+    """Parse a `LightVideoEdge` — the video recorder/bridge box itself (#425).
+
+    With a Hub + NVR, the cameras arrive as `video_edge_channel` rows and the
+    recorder arrives as its own `video_edge` LightDevice oneof case, which was
+    skipped as "unsupported" — so the NVR never appeared as a device. The row
+    carries the standard `LightDeviceProfile` (id, name, online state) plus
+    the recorder's channel counts in `spread_properties`; the health metrics
+    the Ajax app shows for an NVR (disk, CPU, RAM, temperature) do NOT ride
+    this row — they live behind a separate per-device endpoint the
+    integration deliberately doesn't call.
+
+    `video_edge_box` marks the provenance: this is the box, not an
+    NVR-republished channel, so `_dedupe_nvr_republished_channels` (#290)
+    must never drop it however its id happens to be keyed.
+    """
+    if not edge.HasField("profile"):
+        _LOGGER.debug("video_edge without profile, skipping")
+        return None
+
+    profile = edge.profile
+    device_type = "video_edge_unknown"
+    type_value = 0
+    if edge.HasField("video_edge_properties"):
+        type_value = int(edge.video_edge_properties.video_edge_type)
+        mapped = _VIDEO_EDGE_TYPE_MAP.get(type_value)
+        if mapped is None:
+            _LOGGER.warning(
+                "Unmapped video_edge_type %s on video edge %s — surfacing as "
+                "video_edge_unknown; please report the value on "
+                "https://github.com/bvis/aegis-hass/issues/425",
+                type_value,
+                profile.id,
+            )
+        else:
+            device_type = mapped
+
+    statuses = _parse_statuses(profile.statuses)
+    statuses["video_edge_type"] = type_value
+    statuses["video_edge_box"] = True
+    for spread in edge.spread_properties:
+        if spread.WhichOneof("properties") == "channels":
+            statuses["channels_total"] = spread.channels.total_count
+            statuses["channels_online"] = spread.channels.online_count
+            break
+
+    # Same hub_id convention as the channels: Ajax models the video edge as a
+    # sibling of the hub, not a child, so the box is its own registry root.
+    return Device(
+        id=profile.id,
+        hub_id=profile.id,
+        name=profile.name,
+        device_type=device_type,
+        room_id=profile.room_id if profile.room_id else None,
+        group_id=profile.group_id if profile.group_id else None,
+        state=_parse_device_state(profile.states),
+        malfunctions=profile.malfunctions,
+        bypassed=profile.bypassed,
+        statuses=statuses,
+        battery=_parse_battery(profile.statuses),
+    )
+
+
 def parse_device(proto_light_device: Any) -> Device | None:  # noqa: ANN401
     device_kind = proto_light_device.WhichOneof("device")
     if device_kind == "hub_device":
         return _parse_hub_device(proto_light_device.hub_device)
     if device_kind == "video_edge_channel":
         return _parse_video_edge_channel(proto_light_device.video_edge_channel)
+    if device_kind == "video_edge":
+        return _parse_video_edge(proto_light_device.video_edge)
     # `device_kind is None` means the LightDevice proto's `device`
     # oneof didn't match any case we know (`hub_device`,
     # `video_edge`, `video_edge_channel`, `smart_lock`), and the bytes
@@ -882,7 +947,14 @@ def _dedupe_nvr_republished_channels(
     aliases: dict[str, str] = {}
     for d in devices:
         primary_id = nvr_channel_to_primary.get(d.id)
-        if d.device_type == _VIDEO_EDGE_NVR and primary_id is not None:
+        # The recorder's own row (#425, `video_edge_box`) is never a
+        # republished channel — dropping it on an id coincidence would
+        # silently delete the device this pass exists to keep honest.
+        if (
+            d.device_type == _VIDEO_EDGE_NVR
+            and primary_id is not None
+            and not d.statuses.get("video_edge_box")
+        ):
             aliases[d.id] = primary_id
             _LOGGER.debug(
                 "Dropping NVR-republished video channel %s (%s) — re-publishes "

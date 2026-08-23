@@ -430,6 +430,12 @@
             },
             "power": {
                 "name": "Putere"
+            },
+            "channels_online": {
+                "name": "Canale online"
+            },
+            "channels_total": {
+                "name": "Total canale"
             }
         },
         "switch": {

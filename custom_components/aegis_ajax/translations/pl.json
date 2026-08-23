@@ -430,6 +430,12 @@
             },
             "power": {
                 "name": "Moc"
+            },
+            "channels_online": {
+                "name": "Kanały online"
+            },
+            "channels_total": {
+                "name": "Łączna liczba kanałów"
             }
         },
         "switch": {

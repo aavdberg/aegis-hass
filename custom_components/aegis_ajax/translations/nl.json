@@ -430,6 +430,12 @@
             },
             "power": {
                 "name": "Vermogen"
+            },
+            "channels_online": {
+                "name": "Kanalen online"
+            },
+            "channels_total": {
+                "name": "Totaal kanalen"
             }
         },
         "switch": {

@@ -430,6 +430,12 @@
             },
             "power": {
                 "name": "Potenza"
+            },
+            "channels_online": {
+                "name": "Canali online"
+            },
+            "channels_total": {
+                "name": "Canali totali"
             }
         },
         "switch": {

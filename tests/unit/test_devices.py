@@ -85,11 +85,11 @@ class TestParseDevice:
         assert device.state == DeviceState.OFFLINE
 
     def test_parse_unsupported_oneof_returns_none(self) -> None:
-        # `video_edge` (the recorder), `smart_lock` (the auxiliary
-        # smart-lock variant) and an unset oneof all fall through to
-        # None — only `hub_device` and `video_edge_channel` are mapped.
+        # `smart_lock` (the auxiliary smart-lock variant) and an unset
+        # oneof fall through to None — `hub_device`, `video_edge_channel`
+        # and (since #425) `video_edge` are the mapped cases.
         proto_device = MagicMock()
-        proto_device.WhichOneof.return_value = "video_edge"
+        proto_device.WhichOneof.return_value = "smart_lock"
         assert DevicesApi.parse_device(proto_device) is None
 
     def test_parse_unsupported_oneof_tiny_proto_logs_raw_hex(
@@ -596,6 +596,87 @@ class TestRedactProtoBytesToHex:
         device = DevicesApi.parse_device(light_device)
         assert device is not None
         assert device.device_type == "video_edge_indoor"
+
+    # --- #425: the recorder/bridge box itself rides the `video_edge` oneof ---
+
+    def test_parse_video_edge_box_nvr(self) -> None:
+        """@pvangorp in #425: with a Hub + NVR the recorder's own row arrives
+        as the `video_edge` LightDevice oneof case — distinct from the
+        `video_edge_channel` rows of its cameras — and was skipped as
+        'unsupported', so the NVR never appeared as a device."""
+        from v3.mobilegwsvc.commonmodels.space.device.light import (
+            light_device_pb2,
+            light_device_profile_pb2,
+        )
+        from v3.mobilegwsvc.commonmodels.video.videoedge.light import (
+            light_video_edge_pb2,
+        )
+
+        about_type_nvr_h_ac = 7  # About.Type.NVR_H_AC (#290's recorder)
+        light_device = light_device_pb2.LightDevice(
+            video_edge=light_video_edge_pb2.LightVideoEdge(
+                profile=light_device_profile_pb2.LightDeviceProfile(
+                    id="310B121D",
+                    name="NVR",
+                ),
+                video_edge_properties=light_video_edge_pb2.LightVideoEdge.VideoEdgeProperties(
+                    video_edge_type=about_type_nvr_h_ac,
+                ),
+                spread_properties=[
+                    light_video_edge_pb2.LightVideoEdge.SpreadProperties(
+                        channels=light_video_edge_pb2.LightVideoEdge.SpreadProperties.Channels(
+                            total_count=8,
+                            online_count=6,
+                        ),
+                    )
+                ],
+            )
+        )
+
+        device = DevicesApi.parse_device(light_device)
+        assert device is not None
+        assert device.id == "310B121D"
+        assert device.name == "NVR"
+        assert device.device_type == "video_edge_nvr"
+        assert device.state == DeviceState.ONLINE
+        assert device.statuses["channels_total"] == 8
+        assert device.statuses["channels_online"] == 6
+        # Provenance marker: this is the box, not an NVR-republished channel,
+        # so the #290 dedupe must never eat it.
+        assert device.statuses["video_edge_box"] is True
+
+    def test_parse_video_edge_box_without_properties_is_unknown(self) -> None:
+        """A box row without `video_edge_properties` still surfaces — the
+        oneof case itself is the identity; only the sub-type is unknown."""
+        from v3.mobilegwsvc.commonmodels.space.device.light import (
+            light_device_pb2,
+            light_device_profile_pb2,
+        )
+        from v3.mobilegwsvc.commonmodels.video.videoedge.light import (
+            light_video_edge_pb2,
+        )
+
+        light_device = light_device_pb2.LightDevice(
+            video_edge=light_video_edge_pb2.LightVideoEdge(
+                profile=light_device_profile_pb2.LightDeviceProfile(id="ve-1", name="Bridge"),
+            )
+        )
+
+        device = DevicesApi.parse_device(light_device)
+        assert device is not None
+        assert device.device_type == "video_edge_unknown"
+
+    def test_parse_video_edge_box_without_profile_is_skipped(self) -> None:
+        from v3.mobilegwsvc.commonmodels.space.device.light import light_device_pb2
+        from v3.mobilegwsvc.commonmodels.video.videoedge.light import (
+            light_video_edge_pb2,
+        )
+
+        light_device = light_device_pb2.LightDevice(
+            video_edge=light_video_edge_pb2.LightVideoEdge()
+        )
+
+        assert DevicesApi.parse_device(light_device) is None
 
     def test_parse_video_edge_channel_unknown_type(self, caplog: pytest.LogCaptureFixture) -> None:
         # `About.Type` is open-ended; new firmwares can introduce
@@ -1747,6 +1828,22 @@ class TestDeduplicateNvrRepublishedChannels:
         native = self._make("nvr-cam-7", "Garage Cam", "video_edge_nvr")
         deduped = DevicesApi._dedupe_video_doorbells([native])
         assert [d.id for d in deduped] == ["nvr-cam-7"]
+
+    def test_keeps_the_nvr_box_even_on_id_collision(self) -> None:
+        """The recorder's own device row (#425) is `video_edge_nvr`-typed but
+        is not a republished channel — even if a firmware ever keyed it by an
+        id some primary references as its `nvr` source, dropping the box
+        would silently delete the device this issue is about surfacing.
+        `video_edge_box` is the provenance that exempts it."""
+        primary = self._make(
+            "9c756e2bca39-0", "Deurbel", "video_edge_doorbell", video_sources=self._SOURCES
+        )
+        box = self._make("gRdWkZna2l-9c756e2bca39-0", "NVR", "video_edge_nvr")
+        box.statuses["video_edge_box"] = True
+
+        deduped = DevicesApi._dedupe_video_doorbells([primary, box])
+
+        assert {d.id for d in deduped} == {"9c756e2bca39-0", "gRdWkZna2l-9c756e2bca39-0"}
 
     def test_bullet_and_doorbell_both_deduped(self) -> None:
         """One NVR republishes several channels; each republish is matched to

@@ -430,6 +430,12 @@
             },
             "power": {
                 "name": "Výkon"
+            },
+            "channels_online": {
+                "name": "Kanály online"
+            },
+            "channels_total": {
+                "name": "Celkem kanálů"
             }
         },
         "switch": {

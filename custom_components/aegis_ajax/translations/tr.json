@@ -430,6 +430,12 @@
             },
             "power": {
                 "name": "Güç"
+            },
+            "channels_online": {
+                "name": "Çevrimiçi kanallar"
+            },
+            "channels_total": {
+                "name": "Toplam kanal"
             }
         },
         "switch": {
