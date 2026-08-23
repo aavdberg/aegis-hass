@@ -482,6 +482,18 @@ RAW_TAG_TO_GROUP_SECURITY_STATE: dict[str, SecurityState] = {
     "space_group_duress_disarmed": SecurityState.DISARMED,
 }
 
+# Push raw_tags that mean an intrusion alarm is FIRING in the space (#426).
+# The served `SecurityState` enum has no alarm value — Ajax models arming
+# state and alarm events separately — so the panel's `triggered` can only be
+# derived client-side from the alarm push itself (the same way SIA panels
+# synthesize it from the alarm event), held until the space is next seen
+# DISARMED. A named allowlist on purpose: `panic`/`fire`/`tamper` map to HA
+# events too, but which of those should drive the panel state is a scope
+# decision, not a default.
+INTRUSION_ALARM_RAW_TAGS: frozenset[str] = frozenset(
+    {"intrusion_alarm", "intrusion_alarm_confirmed"}
+)
+
 # HA event types that signal a security-state change. Used by the FCM event
 # path to nudge the snapshot-backed re-read (#284/#287): a push tells (at
 # most) one group's new state, while a scenario / keypad / fob action can

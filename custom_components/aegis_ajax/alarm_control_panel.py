@@ -396,6 +396,16 @@ class AjaxAlarmControlPanel(_AjaxAlarmPanelBase):
         space = self._space
         if space is None:
             return None
+        # Intrusion alarm overlay (#426): the served security_state has no
+        # alarm value, so `triggered` is derived from the intrusion push and
+        # shown over any armed state. The disarmed guard is what makes a
+        # disarm reflect instantly — including our own optimistic write —
+        # even before the coordinator drops the overlay entry.
+        if space.id in self.coordinator.alarmed_space_ids and space.security_state not in (
+            SecurityState.DISARMED,
+            SecurityState.NONE,
+        ):
+            return AlarmControlPanelState.TRIGGERED
         # In group mode the server reports PARTIALLY_ARMED while night mode
         # is active — identical to "some groups armed" in the lite state.
         # `night_mode_enabled` (snapshot + push events) disambiguates (#284).
@@ -483,6 +493,12 @@ class AjaxAlarmControlPanel(_AjaxAlarmPanelBase):
             )
         except TypeError:
             return  # space is not a real dataclass (e.g., during tests)
+        # The user's own disarm is the clearest acknowledgment an intrusion
+        # alarm can get (#426) — drop the overlay here rather than waiting for
+        # a poll to observe the disarm, which the 10 s optimistic window can
+        # outlast when the server briefly serves stale state.
+        if new_state == SecurityState.DISARMED:
+            self.coordinator.alarmed_space_ids.discard(self._space_id)
         expiry = asyncio.get_running_loop().time() + 10
         self.coordinator._optimistic_space_states[self._space_id] = (expiry, new_state)
         if self.hass is not None:
