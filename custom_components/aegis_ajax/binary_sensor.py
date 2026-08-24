@@ -62,10 +62,10 @@ BINARY_SENSOR_TYPES: dict[str, BinarySensorTypeInfo] = {
     # reading steam rather than smoke (e.g. shower/cooking false-positive).
     "steam": BinarySensorTypeInfo(BinarySensorDeviceClass.PROBLEM, "steam"),
     "wire_input_alert": BinarySensorTypeInfo(BinarySensorDeviceClass.SAFETY, "wire_input_alert"),
-    # #413: the MT wire input's contact state, mirroring the app's per-input
-    # Alerte/OK — the hub applies the input's NO/NC polarity itself, so
-    # "disrupted" always means the contact left its rest position (open),
-    # in both modes. OPENING, not SAFETY: the ask is a door/garage state
+    # #413: the MT wire input's contact state — open = the app's Alerte,
+    # closed = OK, at least for NC inputs (the timestamped capture; NO-mode
+    # semantics are still unsettled, see the coordinator applier's
+    # docstring). OPENING, not SAFETY: the ask is a door/garage state
     # usable independently of the alarm. Sourced from HTS `0x33`
     # (`coordinator._maybe_apply_hts_contact_state`); reads closed until the
     # first status row after a cold install (the persisted device cache

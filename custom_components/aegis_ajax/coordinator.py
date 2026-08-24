@@ -1985,14 +1985,19 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _maybe_apply_hts_contact_state(self, device_id_hex: str, kv: dict[int, bytes]) -> None:
         """Route HTS `0x33` onto `external_contact_open` for MT wire inputs (#413).
 
-        The hub reports the contact state with the input's configured NO/NC
-        polarity already applied (Taknok's four-state capture), so `01` —
-        CONTACT_DISRUPTED, the app's "Alerte" — maps straight to "open" with
-        no polarity handling here. `00` (what current firmware reports at
-        rest) and `02` (the enum's named CONTACT_NORMAL) map to "closed".
-        Anything else — `03` CONTACT_NOT_AVAILABLE, the `80` unknown sentinel,
-        a future value — says nothing about the contact's position and leaves
-        the stored state untouched.
+        Value mapping, from Taknok's timestamped NC-mode capture (2026-08-22):
+        circuit open — the app's "Alerte" — is `0x33=00`; circuit closed —
+        the app's "OK" — is `0x33=01`. The proto enum (CONTACT_DISRUPTED=1,
+        CONTACT_NORMAL=2) does NOT describe this byte — firmware sends a bool
+        whose values contradict the enum's names, and reading `01` as
+        "disrupted" is exactly the inversion both field reports saw on
+        1.17.1-beta.4/5 (a closed NC door showed "open"). Anything but
+        `00`/`01` — including the enum's `02`/`03`, whose names are no longer
+        evidence, and the `80` unknown sentinel — says nothing about the
+        contact's position and leaves the stored state untouched. Whether the
+        hub applies the input's NO/NC polarity to this byte before reporting
+        is still unsettled (the capture's NO-mode rows conflict with the
+        beta.5 field report); both readings agree on this value mapping.
 
         Family-gated hard to `wire_input_mt`: the same byte means
         `external_sensor_power_broken` on the MultiTransmitter itself and
@@ -2007,9 +2012,9 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if device is None or device.device_type != "wire_input_mt":
             return
         raw = kv.get(_HTS_CONTACT_STATE_KEY)
-        if raw == b"\x01":
+        if raw == b"\x00":
             contact_open = True
-        elif raw in (b"\x00", b"\x02"):
+        elif raw == b"\x01":
             contact_open = False
         else:
             return

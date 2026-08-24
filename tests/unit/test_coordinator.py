@@ -3130,10 +3130,14 @@ class TestHtsCaseTamperRouting:
 class TestHtsContactState:
     """HTS `0x33` drives `external_contact_open` on MT wire inputs (#413).
 
-    Hardware-validated by Taknok's four-state capture (2026-08-22): the hub
-    applies the input's configured NO/NC polarity itself, so `01`
-    (CONTACT_DISRUPTED) always means "the contact left its rest position" —
-    the app's "Alerte" — in both modes, and `00`/`02` mean at rest ("OK").
+    The value mapping comes from Taknok's timestamped capture (2026-08-22),
+    NC mode: circuit open (app "Alerte") -> `0x33=00`, circuit closed (app
+    "OK") -> `0x33=01`. The first shipped build (1.17.1-beta.4) read those
+    two values the other way around — both field reports on the issue saw a
+    closed door as "open" in NC — so `00` is open and `01` is closed. The
+    proto enum (DISRUPTED=1/NORMAL=2) does NOT describe this byte: firmware
+    sends a bool that contradicts the enum's names, so `02` proves nothing
+    and is left untouched with the other unknowns.
     """
 
     def _make_device(
@@ -3153,27 +3157,26 @@ class TestHtsContactState:
             battery=None,
         )
 
-    def test_disrupted_reads_open(self) -> None:
+    def test_00_reads_open(self) -> None:
+        # Capture, NC mode, 13:58: circuit open, app shows Alerte -> 0x33=00.
         coordinator = _make_coordinator()
         coordinator.devices["082639CE"] = self._make_device()
         coordinator.async_set_updated_data = MagicMock()
 
-        coordinator._on_hts_device_kv("0029B936", "082639CE", {0x33: b"\x01"})
+        coordinator._on_hts_device_kv("0029B936", "082639CE", {0x33: b"\x00"})
 
         assert coordinator.devices["082639CE"].statuses["external_contact_open"] is True
         coordinator.async_set_updated_data.assert_called_once()
 
-    @pytest.mark.parametrize("raw", [b"\x00", b"\x02"])
-    def test_rest_state_reads_closed(self, raw: bytes) -> None:
-        # `00` is what current firmware reports at rest; `02` is the enum's
-        # named CONTACT_NORMAL — both mean the contact is in its rest position.
+    def test_01_reads_closed(self) -> None:
+        # Capture, NC mode, 13:59: circuit closed, app shows OK -> 0x33=01.
         coordinator = _make_coordinator()
         coordinator.devices["082639CE"] = self._make_device(
             statuses={"external_contact_open": True}
         )
         coordinator.async_set_updated_data = MagicMock()
 
-        coordinator._on_hts_device_kv("0029B936", "082639CE", {0x33: raw})
+        coordinator._on_hts_device_kv("0029B936", "082639CE", {0x33: b"\x01"})
 
         assert coordinator.devices["082639CE"].statuses["external_contact_open"] is False
 
@@ -3190,10 +3193,13 @@ class TestHtsContactState:
 
         assert "external_contact_open" not in coordinator.devices["082639CE"].statuses
 
-    @pytest.mark.parametrize("raw", [b"\x03", b"\x80"])
+    @pytest.mark.parametrize("raw", [b"\x02", b"\x03", b"\x80"])
     def test_not_available_and_unknown_sentinel_leave_state_untouched(self, raw: bytes) -> None:
-        # `03` = CONTACT_NOT_AVAILABLE; `80` is this protocol's unknown
-        # sentinel. Neither says anything about the contact's position.
+        # `80` is this protocol's unknown sentinel. `02`/`03` are the proto
+        # enum's CONTACT_NORMAL/CONTACT_NOT_AVAILABLE — but the enum's value
+        # 1 was empirically wrong for this byte, so an enum name is not
+        # evidence; no capture has shown either value, and neither says
+        # anything about the contact's position.
         coordinator = _make_coordinator()
         coordinator.devices["082639CE"] = self._make_device(
             statuses={"external_contact_open": True}
@@ -3214,7 +3220,7 @@ class TestHtsContactState:
         )
         coordinator.async_set_updated_data = MagicMock()
 
-        coordinator._on_hts_device_kv("0029B936", "082639CE", {0x33: b"\x01"})
+        coordinator._on_hts_device_kv("0029B936", "082639CE", {0x33: b"\x00"})
 
         coordinator.async_set_updated_data.assert_not_called()
 
