@@ -371,6 +371,9 @@
             },
             "mains_power": {
                 "name": "Şebeke gücü"
+            },
+            "external_contact_open": {
+                "name": "Kontak"
             }
         },
         "sensor": {

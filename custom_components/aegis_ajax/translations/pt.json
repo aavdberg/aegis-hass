@@ -371,6 +371,9 @@
             },
             "mains_power": {
                 "name": "Alimentação externa"
+            },
+            "external_contact_open": {
+                "name": "Contato"
             }
         },
         "sensor": {

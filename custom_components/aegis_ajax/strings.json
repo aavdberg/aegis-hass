@@ -408,6 +408,9 @@
             },
             "mains_power": {
                 "name": "Mains power"
+            },
+            "external_contact_open": {
+                "name": "Contact"
             }
         },
         "sensor": {

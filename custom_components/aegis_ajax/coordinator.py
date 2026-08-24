@@ -204,12 +204,34 @@ _HTS_TAMPER_ROUTED_DEVICE_TYPES: frozenset[str] = frozenset(
 #
 # `tamper` and the siren settings keep their own blocks below — they carry
 # provenance conditions this generic pass has no business reproducing.
+# HTS per-device key carrying a MultiTransmitter wire input's contact state
+# (#413): `WireInputMt.external_contact_state`. Hardware-validated by
+# Taknok's four-state capture (2026-08-22, NC and NO, bistable): the hub
+# applies the input's configured NO/NC polarity ITSELF before reporting, so
+# `01` (CONTACT_DISRUPTED — the app's "Alerte") always means "the contact
+# left its configured rest position" in both modes, and `00`/`02` mean at
+# rest ("OK"). It rides the STATUS_BODY the client already requests every
+# 60 s plus live STATUS_UPDATE deltas — consuming it adds no Ajax API
+# traffic. STRICTLY per-family: the same byte is
+# `external_sensor_power_broken` on the MultiTransmitter itself and other
+# things elsewhere (HTS sub-keys are legacy proto field numbers, per family).
+_HTS_CONTACT_STATE_KEY = 0x33
+
+# The statuses key the routed value lands on, read by the `opening`
+# binary sensor.
+_EXTERNAL_CONTACT_OPEN_KEY = "external_contact_open"
+
+#
+# `external_contact_open` (#413) is HTS-only: no gRPC surface carries it, so
+# a snapshot omitting it is NEVER a signal, and HTS itself updates or
+# withdraws it on its ≤60 s cadence.
 _SNAPSHOT_CARRY_FORWARD_STATUS_KEYS: frozenset[str] = frozenset(
     {
         "humidity",
         "co2",
         "signal_strength",
         "temperature",
+        _EXTERNAL_CONTACT_OPEN_KEY,
     }
 )
 
@@ -1529,6 +1551,10 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # that can return early so every reporting family feeds the
         # deactivation carry-forward gate.
         self._maybe_track_hts_bypass_state(device_id_hex, device, kv)
+        # A MultiTransmitter wire input's contact state, 0x33 (#413) — runs
+        # after the writers above, so it re-reads the device in case one of
+        # them replaced it.
+        self._maybe_apply_hts_contact_state(device_id_hex, kv)
         # A modeled SpaceControl's settings row (#311) — read-only, logged
         # before anything that can return early: this hub class never reaches
         # the keyfob path, so this is the only place its row is ever visible.
@@ -1954,6 +1980,44 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             statuses = _without_hts_case_tamper(device.statuses)
 
         self.devices[device_id_hex] = dc_replace(device, statuses=statuses)
+        self.async_set_updated_data({"spaces": self.spaces, "devices": self.devices})
+
+    def _maybe_apply_hts_contact_state(self, device_id_hex: str, kv: dict[int, bytes]) -> None:
+        """Route HTS `0x33` onto `external_contact_open` for MT wire inputs (#413).
+
+        The hub reports the contact state with the input's configured NO/NC
+        polarity already applied (Taknok's four-state capture), so `01` —
+        CONTACT_DISRUPTED, the app's "Alerte" — maps straight to "open" with
+        no polarity handling here. `00` (what current firmware reports at
+        rest) and `02` (the enum's named CONTACT_NORMAL) map to "closed".
+        Anything else — `03` CONTACT_NOT_AVAILABLE, the `80` unknown sentinel,
+        a future value — says nothing about the contact's position and leaves
+        the stored state untouched.
+
+        Family-gated hard to `wire_input_mt`: the same byte means
+        `external_sensor_power_broken` on the MultiTransmitter itself and
+        other things on other families (#406's lesson). Re-reads the device
+        from `self.devices` because an earlier applier in the kv chain may
+        have replaced the instance the caller holds. Runs on the event loop
+        (HTS listen task).
+        """
+        from dataclasses import replace as dc_replace  # noqa: PLC0415
+
+        device = self.devices.get(device_id_hex)
+        if device is None or device.device_type != "wire_input_mt":
+            return
+        raw = kv.get(_HTS_CONTACT_STATE_KEY)
+        if raw == b"\x01":
+            contact_open = True
+        elif raw in (b"\x00", b"\x02"):
+            contact_open = False
+        else:
+            return
+        if device.statuses.get(_EXTERNAL_CONTACT_OPEN_KEY) is contact_open:
+            return
+        self.devices[device_id_hex] = dc_replace(
+            device, statuses={**device.statuses, _EXTERNAL_CONTACT_OPEN_KEY: contact_open}
+        )
         self.async_set_updated_data({"spaces": self.spaces, "devices": self.devices})
 
     def _withdraw_hts_case_tamper(self, device_id_hex: str, device: Device) -> None:

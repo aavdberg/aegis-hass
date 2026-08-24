@@ -387,6 +387,9 @@
             },
             "mains_power": {
                 "name": "Alimentación externa"
+            },
+            "external_contact_open": {
+                "name": "Contacto"
             }
         },
         "sensor": {

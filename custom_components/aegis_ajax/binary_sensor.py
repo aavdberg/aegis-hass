@@ -62,6 +62,18 @@ BINARY_SENSOR_TYPES: dict[str, BinarySensorTypeInfo] = {
     # reading steam rather than smoke (e.g. shower/cooking false-positive).
     "steam": BinarySensorTypeInfo(BinarySensorDeviceClass.PROBLEM, "steam"),
     "wire_input_alert": BinarySensorTypeInfo(BinarySensorDeviceClass.SAFETY, "wire_input_alert"),
+    # #413: the MT wire input's contact state, mirroring the app's per-input
+    # Alerte/OK — the hub applies the input's NO/NC polarity itself, so
+    # "disrupted" always means the contact left its rest position (open),
+    # in both modes. OPENING, not SAFETY: the ask is a door/garage state
+    # usable independently of the alarm. Sourced from HTS `0x33`
+    # (`coordinator._maybe_apply_hts_contact_state`); reads closed until the
+    # first status row after a cold install (the persisted device cache
+    # keeps it across restarts). An input with nothing wired reads
+    # permanently open (broken loop) — same as the app shows Alerte for it.
+    "external_contact_open": BinarySensorTypeInfo(
+        BinarySensorDeviceClass.OPENING, "external_contact_open"
+    ),
 }
 
 # Devices whose single "alert" entity should OR-reduce several hub status
@@ -310,7 +322,7 @@ _DEVICE_TYPE_SENSORS: dict[str, list[str]] = {
     "multi_transmitter": ["tamper"],
     "multi_transmitter_fibra": ["tamper"],
     "wire_input": ["tamper", "wire_input_alert"],
-    "wire_input_mt": ["tamper", "wire_input_alert"],
+    "wire_input_mt": ["tamper", "wire_input_alert", "external_contact_open"],
     "wire_input_rs": ["tamper", "wire_input_alert"],
     "life_quality": [],
     "life_quality_plus": [],
