@@ -3127,6 +3127,107 @@ class TestHtsCaseTamperRouting:
         assert coordinator.devices["003AE89B"].statuses["tamper"] is True
 
 
+class TestHtsContactState:
+    """HTS `0x33` drives `external_contact_open` on MT wire inputs (#413).
+
+    Hardware-validated by Taknok's four-state capture (2026-08-22): the hub
+    applies the input's configured NO/NC polarity itself, so `01`
+    (CONTACT_DISRUPTED) always means "the contact left its rest position" —
+    the app's "Alerte" — in both modes, and `00`/`02` mean at rest ("OK").
+    """
+
+    def _make_device(
+        self, device_type: str = "wire_input_mt", statuses: dict[str, object] | None = None
+    ) -> Device:
+        return Device(
+            id="082639CE",
+            hub_id="hub-1",
+            name="Wire input 8",
+            device_type=device_type,
+            room_id=None,
+            group_id=None,
+            state=DeviceState.ONLINE,
+            malfunctions=0,
+            bypassed=False,
+            statuses=statuses if statuses is not None else {},
+            battery=None,
+        )
+
+    def test_disrupted_reads_open(self) -> None:
+        coordinator = _make_coordinator()
+        coordinator.devices["082639CE"] = self._make_device()
+        coordinator.async_set_updated_data = MagicMock()
+
+        coordinator._on_hts_device_kv("0029B936", "082639CE", {0x33: b"\x01"})
+
+        assert coordinator.devices["082639CE"].statuses["external_contact_open"] is True
+        coordinator.async_set_updated_data.assert_called_once()
+
+    @pytest.mark.parametrize("raw", [b"\x00", b"\x02"])
+    def test_rest_state_reads_closed(self, raw: bytes) -> None:
+        # `00` is what current firmware reports at rest; `02` is the enum's
+        # named CONTACT_NORMAL — both mean the contact is in its rest position.
+        coordinator = _make_coordinator()
+        coordinator.devices["082639CE"] = self._make_device(
+            statuses={"external_contact_open": True}
+        )
+        coordinator.async_set_updated_data = MagicMock()
+
+        coordinator._on_hts_device_kv("0029B936", "082639CE", {0x33: raw})
+
+        assert coordinator.devices["082639CE"].statuses["external_contact_open"] is False
+
+    def test_other_families_are_not_routed(self) -> None:
+        # 0x33 is `external_sensor_power_broken` on the MultiTransmitter
+        # itself and other things elsewhere — the sub-key is a per-family
+        # legacy proto field number. Routing beyond the validated family
+        # would repeat #406.
+        coordinator = _make_coordinator()
+        coordinator.devices["082639CE"] = self._make_device(device_type="multi_transmitter")
+        coordinator.async_set_updated_data = MagicMock()
+
+        coordinator._on_hts_device_kv("0029B936", "082639CE", {0x33: b"\x01"})
+
+        assert "external_contact_open" not in coordinator.devices["082639CE"].statuses
+
+    @pytest.mark.parametrize("raw", [b"\x03", b"\x80"])
+    def test_not_available_and_unknown_sentinel_leave_state_untouched(self, raw: bytes) -> None:
+        # `03` = CONTACT_NOT_AVAILABLE; `80` is this protocol's unknown
+        # sentinel. Neither says anything about the contact's position.
+        coordinator = _make_coordinator()
+        coordinator.devices["082639CE"] = self._make_device(
+            statuses={"external_contact_open": True}
+        )
+        coordinator.async_set_updated_data = MagicMock()
+
+        coordinator._on_hts_device_kv("0029B936", "082639CE", {0x33: raw})
+
+        assert coordinator.devices["082639CE"].statuses["external_contact_open"] is True
+        coordinator.async_set_updated_data.assert_not_called()
+
+    def test_unchanged_value_does_not_churn_entities(self) -> None:
+        # Every device row repeats on the 60 s status refresh; an unchanged
+        # value must not fire a state update.
+        coordinator = _make_coordinator()
+        coordinator.devices["082639CE"] = self._make_device(
+            statuses={"external_contact_open": True}
+        )
+        coordinator.async_set_updated_data = MagicMock()
+
+        coordinator._on_hts_device_kv("0029B936", "082639CE", {0x33: b"\x01"})
+
+        coordinator.async_set_updated_data.assert_not_called()
+
+    def test_contact_state_is_in_the_snapshot_carry(self) -> None:
+        """gRPC has NO source for this key — a snapshot omitting it is never
+        a signal, and only HTS itself (≤60 s cadence) updates or withdraws it."""
+        from custom_components.aegis_ajax.coordinator import (
+            _SNAPSHOT_CARRY_FORWARD_STATUS_KEYS,
+        )
+
+        assert "external_contact_open" in _SNAPSHOT_CARRY_FORWARD_STATUS_KEYS
+
+
 class TestHtsCaseTamperFamilyGate:
     """Only families with a physical-tamper capture are routed (#406).
 

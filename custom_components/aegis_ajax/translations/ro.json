@@ -371,6 +371,9 @@
             },
             "mains_power": {
                 "name": "Alimentare rețea"
+            },
+            "external_contact_open": {
+                "name": "Contact"
             }
         },
         "sensor": {

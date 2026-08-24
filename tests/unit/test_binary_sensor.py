@@ -80,6 +80,24 @@ class TestBinarySensorTypes:
     def test_glass_break_sensor_type_exists(self) -> None:
         assert "glass_break" in BINARY_SENSOR_TYPES
 
+    def test_external_contact_open_type_is_an_opening_sensor(self) -> None:
+        # #413: mirrors the app's per-input Alerte/OK contact state — open =
+        # disrupted. OPENING, not SAFETY: the whole point is a door/garage
+        # state usable independently of the alarm.
+        from homeassistant.components.binary_sensor import BinarySensorDeviceClass
+
+        assert "external_contact_open" in BINARY_SENSOR_TYPES
+        assert (
+            BINARY_SENSOR_TYPES["external_contact_open"].device_class
+            == BinarySensorDeviceClass.OPENING
+        )
+
+    def test_wire_input_mt_gets_the_contact_sensor(self) -> None:
+        # Only the capture-validated family (#413); plain wire_input and
+        # transmitter key the same concept on different sub-keys.
+        assert "external_contact_open" in _DEVICE_TYPE_SENSORS["wire_input_mt"]
+        assert "external_contact_open" not in _DEVICE_TYPE_SENSORS["wire_input"]
+
     def test_vibration_sensor_type_exists(self) -> None:
         assert "vibration" in BINARY_SENSOR_TYPES
 

@@ -371,6 +371,9 @@
             },
             "mains_power": {
                 "name": "Alimentation secteur"
+            },
+            "external_contact_open": {
+                "name": "Contact"
             }
         },
         "sensor": {

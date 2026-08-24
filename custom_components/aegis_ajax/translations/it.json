@@ -371,6 +371,9 @@
             },
             "mains_power": {
                 "name": "Alimentazione di rete"
+            },
+            "external_contact_open": {
+                "name": "Contatto"
             }
         },
         "sensor": {

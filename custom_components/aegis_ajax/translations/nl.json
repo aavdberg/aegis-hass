@@ -371,6 +371,9 @@
             },
             "mains_power": {
                 "name": "Netstroom"
+            },
+            "external_contact_open": {
+                "name": "Contact"
             }
         },
         "sensor": {

@@ -371,6 +371,9 @@
             },
             "mains_power": {
                 "name": "Netzstrom"
+            },
+            "external_contact_open": {
+                "name": "Kontakt"
             }
         },
         "sensor": {
