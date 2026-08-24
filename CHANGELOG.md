@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.1] - unreleased
+
+### Added
+- **MultiTransmitter wire inputs expose their contact state (#413).** Each wire input gets a "Contact" binary sensor (open/closed) mirroring the Ajax app's per-input Alerte/OK display, alongside the existing alert entity. The hub reports the state with the input's configured NO/NC polarity already applied — validated by @Taknok's four-state capture (NC and NO, open and closed) — so the sensor reads correctly in both wiring modes. An input with nothing wired reads as permanently open (broken loop), the same way the app shows it. No additional requests to Ajax: the state rides the status channel already flowing.
+- **The alarm panel shows `triggered` during an intrusion alarm (#426).** The arming state Ajax serves has no "alarm firing" value, so the panel could never show it. It is now derived from the intrusion alarm push — set the moment the event arrives, shown over any armed state, and cleared when the system is next seen disarmed. Nothing is persisted, so a restart never resurrects an old alarm. Requires push notifications (FCM) to be configured.
+- **NVR / video recorder boxes appear as devices (#425).** The recorder arrives in the device stream as its own row type, which was being skipped as unsupported — so the box never showed up while its cameras did. It now surfaces with its name, online state and channel counters (online / total). Disk, CPU, RAM and temperature are deliberately not included: the Ajax app reads those from a separate per-device endpoint the integration does not call.
+
+### Fixed
+- **Temperature readings now survive a degraded device snapshot (#403).** `temperature` joins the carry-forward that already protected battery, signal strength, humidity and CO₂ since 1.16.0: a snapshot that omits a previously-reported temperature keeps the last value instead of blanking the sensor. The gap was measured live by @wip3out3r the day before the fix shipped — seven of nine temperatures emptied within milliseconds of a snapshot burst, while the two devices that already had a carry held their values throughout.
+
 ## [1.17.0] - 2026-08-19
 
 Consolidates `1.16.3-beta.1` unchanged — the beta and the stable are the same bits. Validated by @lexius on the reporting install (ghost deleted, live removals working), with a clean regression soak on a second install. The version is MINOR rather than PATCH because the release adds user-visible capability: "Delete device" on the integration's device pages.
