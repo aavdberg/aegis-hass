@@ -110,10 +110,10 @@ class TestAjaxLight:
         )
         assert light.available is False
 
-    def test_is_on_when_brightness_gt_zero(self) -> None:
+    def test_is_on_reads_switch_state(self) -> None:
         coordinator = MagicMock()
         mock_device = MagicMock()
-        mock_device.statuses = {"brightness_ch1": 50}
+        mock_device.statuses = {"switch_ch1": True, "brightness_ch1": 50}
         coordinator.devices = {"d1": mock_device}
         light = AjaxLight(
             coordinator=coordinator,
@@ -124,10 +124,25 @@ class TestAjaxLight:
         )
         assert light.is_on is True
 
-    def test_is_off_when_brightness_zero(self) -> None:
+    def test_is_off_when_switch_off_despite_brightness(self) -> None:
+        """The #429 symptom: brightness holds a level while the load is off."""
         coordinator = MagicMock()
         mock_device = MagicMock()
-        mock_device.statuses = {"brightness_ch1": 0}
+        mock_device.statuses = {"switch_ch1": False, "brightness_ch1": 100}
+        coordinator.devices = {"d1": mock_device}
+        light = AjaxLight(
+            coordinator=coordinator,
+            device_id="d1",
+            hub_id="h1",
+            device_type="light_switch_dimmer",
+            channel=1,
+        )
+        assert light.is_on is False
+
+    def test_is_off_when_switch_state_missing(self) -> None:
+        coordinator = MagicMock()
+        mock_device = MagicMock()
+        mock_device.statuses = {"brightness_ch1": 100}
         coordinator.devices = {"d1": mock_device}
         light = AjaxLight(
             coordinator=coordinator,
@@ -192,11 +207,23 @@ class TestAjaxLight:
         # 50% -> ~128
         assert light.brightness == round(50 * 255 / 100)
 
-    @pytest.mark.asyncio
-    async def test_turn_on_sends_brightness_command(self) -> None:
+    @staticmethod
+    def _command_coordinator(statuses: dict[str, object] | None) -> MagicMock:
+        """Coordinator with a d1 device carrying `statuses` (None = no device)."""
         coordinator = MagicMock()
         coordinator.devices_api.send_command = AsyncMock()
         coordinator.async_request_refresh = AsyncMock()
+        if statuses is None:
+            coordinator.devices = {}
+        else:
+            mock_device = MagicMock()
+            mock_device.statuses = statuses
+            coordinator.devices = {"d1": mock_device}
+        return coordinator
+
+    @pytest.mark.asyncio
+    async def test_turn_on_sends_on_command(self) -> None:
+        coordinator = self._command_coordinator({"switch_ch1": False, "brightness_ch1": 100})
         light = AjaxLight(
             coordinator=coordinator,
             device_id="d1",
@@ -207,14 +234,13 @@ class TestAjaxLight:
         await light.async_turn_on()
         coordinator.devices_api.send_command.assert_called_once()
         cmd = coordinator.devices_api.send_command.call_args[0][0]
-        assert cmd.action == "brightness"
-        assert cmd.brightness == 100
+        assert cmd.action == "on"
+        assert cmd.channels == [1]
 
     @pytest.mark.asyncio
-    async def test_turn_on_with_brightness_kwarg(self) -> None:
-        coordinator = MagicMock()
-        coordinator.devices_api.send_command = AsyncMock()
-        coordinator.async_request_refresh = AsyncMock()
+    async def test_turn_on_with_brightness_while_off_sends_brightness_then_on(self) -> None:
+        """The #429 fix: a brightness write alone never powers the load."""
+        coordinator = self._command_coordinator({"switch_ch1": False, "brightness_ch1": 1})
         light = AjaxLight(
             coordinator=coordinator,
             device_id="d1",
@@ -224,15 +250,30 @@ class TestAjaxLight:
         )
         # 128/255 * 100 ≈ 50
         await light.async_turn_on(brightness=128)
+        cmds = [c.args[0] for c in coordinator.devices_api.send_command.call_args_list]
+        assert [c.action for c in cmds] == ["brightness", "on"]
+        assert cmds[0].brightness == round(128 * 100 / 255)
+        assert cmds[1].channels == [1]
+
+    @pytest.mark.asyncio
+    async def test_turn_on_with_brightness_while_on_sends_brightness_only(self) -> None:
+        coordinator = self._command_coordinator({"switch_ch1": True, "brightness_ch1": 100})
+        light = AjaxLight(
+            coordinator=coordinator,
+            device_id="d1",
+            hub_id="h1",
+            device_type="light_switch_dimmer",
+            channel=1,
+        )
+        await light.async_turn_on(brightness=128)
+        coordinator.devices_api.send_command.assert_called_once()
         cmd = coordinator.devices_api.send_command.call_args[0][0]
         assert cmd.action == "brightness"
         assert cmd.brightness == round(128 * 100 / 255)
 
     @pytest.mark.asyncio
-    async def test_turn_off_sends_zero_brightness(self) -> None:
-        coordinator = MagicMock()
-        coordinator.devices_api.send_command = AsyncMock()
-        coordinator.async_request_refresh = AsyncMock()
+    async def test_turn_off_sends_off_command(self) -> None:
+        coordinator = self._command_coordinator({"switch_ch1": True, "brightness_ch1": 100})
         light = AjaxLight(
             coordinator=coordinator,
             device_id="d1",
@@ -241,6 +282,7 @@ class TestAjaxLight:
             channel=1,
         )
         await light.async_turn_off()
+        coordinator.devices_api.send_command.assert_called_once()
         cmd = coordinator.devices_api.send_command.call_args[0][0]
-        assert cmd.action == "brightness"
-        assert cmd.brightness == 0
+        assert cmd.action == "off"
+        assert cmd.channels == [1]
