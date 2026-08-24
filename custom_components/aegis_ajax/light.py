@@ -82,11 +82,14 @@ class AjaxLight(CoordinatorEntity[AjaxCobrandedCoordinator], LightEntity):
 
     @property
     def is_on(self) -> bool | None:
+        # The dimmer carries a real switch state next to the brightness
+        # (`LightSwitchChannel.state`), and the two are independent: the
+        # brightness holds its level while the load is off. Deriving on/off
+        # from brightness>0 is the #429 bug.
         device = self._device
         if device is None:
             return None
-        brightness_val = device.statuses.get(f"brightness_ch{self._channel}", 0)
-        return bool(brightness_val > 0)
+        return bool(device.statuses.get(f"switch_ch{self._channel}", False))
 
     @property
     def brightness(self) -> int | None:
@@ -97,24 +100,36 @@ class AjaxLight(CoordinatorEntity[AjaxCobrandedCoordinator], LightEntity):
         return int(round(pct * 255 / 100))
 
     async def async_turn_on(self, **kwargs: object) -> None:
-        brightness_pct = 100
+        # DeviceCommandBrightness only sets the level — it never powers the
+        # load (#429: the % moved between 1 and 100 while the light stayed
+        # off). Powering on/off is DeviceCommandDeviceOn/Off, same as the
+        # non-dimmer light switches. Brightness goes first so the light comes
+        # on at the requested level instead of flashing the old one.
         if ATTR_BRIGHTNESS in kwargs:
             brightness_pct = round(cast("int", kwargs[ATTR_BRIGHTNESS]) * 100 / 255)
-        cmd = DeviceCommand.set_brightness(
+            cmd = DeviceCommand.set_brightness(
+                hub_id=self._hub_id,
+                device_id=self._device_id,
+                device_type=self._device_type,
+                brightness=brightness_pct,
+                channels=[self._channel],
+            )
+            await async_send_device_command(self.coordinator, cmd)
+            if self.is_on:
+                return
+        cmd = DeviceCommand.on(
             hub_id=self._hub_id,
             device_id=self._device_id,
             device_type=self._device_type,
-            brightness=brightness_pct,
             channels=[self._channel],
         )
         await async_send_device_command(self.coordinator, cmd)
 
     async def async_turn_off(self, **kwargs: object) -> None:
-        cmd = DeviceCommand.set_brightness(
+        cmd = DeviceCommand.off(
             hub_id=self._hub_id,
             device_id=self._device_id,
             device_type=self._device_type,
-            brightness=0,
             channels=[self._channel],
         )
         await async_send_device_command(self.coordinator, cmd)
