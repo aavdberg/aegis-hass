@@ -5,7 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.17.1] - unreleased
+## [1.17.1] - 2026-08-26
+
+Consolidates the `1.17.1-beta.1` → `beta.7` series, same bits as `beta.7`. Three of the six changes were confirmed directly on the reporters' own hardware: the recorder card by @pvangorp (7/7 channels), the dimmer by @mediaman66-dev, and the MultiTransmitter contact state by @Taknok's four-state capture — which also caught the first beta reading that state backwards, alongside @mfroger's report.
+
+The temperature carry-forward rests on two separate live measurements by @wip3out3r rather than on a direct test of itself: the carry mechanism doing its job on the drop-plus-snapshot coincidence for the fields it already covered, and an independent sizing of the temperature hole taken the day before the fix shipped (seven of nine readings emptied, the two that already had a carry held). Temperature simply joins that proven list — his measurement sized the gap, it did not test the patch, and he was careful to say so.
+
+Two more ship without hardware confirmation, deliberately and with unit-test evidence instead. The intrusion-alarm `triggered` state cannot be exercised on demand — it takes a real alarm, sirens and all — and its worst case is an over-reported alarm that clears on the next disarm or restart, nothing persisted. The DualCurtain motion sensor is a single entry in the per-family entity map, whose failure mode is the sensor staying `off`: exactly the situation it replaces. Both issues stay open until their reporters confirm; anything wrong there gets a patch release rather than waiting for the next feature.
 
 ### Added
 - **MultiTransmitter wire inputs expose their contact state (#413).** Each wire input gets a "Contact" binary sensor (open/closed) mirroring the Ajax app's per-input Alerte/OK display, alongside the existing alert entity. Built on @Taknok's four-state hardware capture and corrected by his and @mfroger's field reports, which caught the state reading backwards in the first beta. An input with nothing wired reads as permanently open (broken loop), the same way the app shows it. No additional requests to Ajax: the state rides the status channel already flowing.
