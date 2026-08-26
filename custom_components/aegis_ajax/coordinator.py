@@ -1985,19 +1985,35 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _maybe_apply_hts_contact_state(self, device_id_hex: str, kv: dict[int, bytes]) -> None:
         """Route HTS `0x33` onto `external_contact_open` for MT wire inputs (#413).
 
-        Value mapping, from Taknok's timestamped NC-mode capture (2026-08-22):
-        circuit open — the app's "Alerte" — is `0x33=00`; circuit closed —
-        the app's "OK" — is `0x33=01`. The proto enum (CONTACT_DISRUPTED=1,
-        CONTACT_NORMAL=2) does NOT describe this byte — firmware sends a bool
-        whose values contradict the enum's names, and reading `01` as
-        "disrupted" is exactly the inversion both field reports saw on
-        1.17.1-beta.4/5 (a closed NC door showed "open"). Anything but
-        `00`/`01` — including the enum's `02`/`03`, whose names are no longer
-        evidence, and the `80` unknown sentinel — says nothing about the
-        contact's position and leaves the stored state untouched. Whether the
-        hub applies the input's NO/NC polarity to this byte before reporting
-        is still unsettled (the capture's NO-mode rows conflict with the
-        beta.5 field report); both readings agree on this value mapping.
+        `0x33=00` is "left its rest position" — the app's "Alerte" — and maps
+        to open; `0x33=01` is at rest ("OK") and maps to closed. The proto
+        enum (CONTACT_DISRUPTED=1, CONTACT_NORMAL=2) does NOT describe this
+        byte: firmware sends a bool whose values contradict the enum's names,
+        and reading `01` as "disrupted" is the inversion both field reports
+        saw on 1.17.1-beta.4/5 (a closed NC door showed "open"). Anything but
+        `00`/`01` — the enum's `02`/`03`, whose names are no longer evidence,
+        and the `80` sentinel the hub bursts on a settings write — says
+        nothing about the contact's position and leaves the stored state
+        untouched.
+
+        ⚠️ **The hub applies the input's NO/NC polarity before reporting, so
+        do NOT add polarity handling here.** Settled by Taknok's four-state
+        capture with 2-minute dwells (2026-08-25, `1.17.1-beta.6`):
+
+            NC + circuit open   -> 00    NO + circuit closed -> 00
+            NC + circuit closed -> 01    NO + circuit open   -> 01
+
+        Both modes agree on the *meaning*: `00` whenever the wire is away
+        from the position the configured mode calls rest. Since NO/NC is
+        chosen so the loop sits at rest with the door shut, `00` is always
+        "door open" and the sensor reads correctly in both wirings.
+
+        The same capture identified `0x4A` on the input's SETTINGS object as
+        the NO/NC mode itself (`01` = NC, `00` = NO). Deliberately unused:
+        XOR-ing it into `0x33` would recover the RAW circuit state, which
+        inverts against the door on NO wiring — the opposite of what an
+        `opening` sensor should say. Guarded by
+        `test_the_no_nc_mode_key_is_not_consumed`.
 
         Family-gated hard to `wire_input_mt`: the same byte means
         `external_sensor_power_broken` on the MultiTransmitter itself and
