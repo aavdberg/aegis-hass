@@ -63,9 +63,9 @@ BINARY_SENSOR_TYPES: dict[str, BinarySensorTypeInfo] = {
     "steam": BinarySensorTypeInfo(BinarySensorDeviceClass.PROBLEM, "steam"),
     "wire_input_alert": BinarySensorTypeInfo(BinarySensorDeviceClass.SAFETY, "wire_input_alert"),
     # #413: the MT wire input's contact state — open = the app's Alerte,
-    # closed = OK, at least for NC inputs (the timestamped capture; NO-mode
-    # semantics are still unsettled, see the coordinator applier's
-    # docstring). OPENING, not SAFETY: the ask is a door/garage state
+    # closed = OK, in BOTH NO and NC wiring (the hub applies the polarity
+    # itself; four-state capture, see the coordinator applier's docstring).
+    # OPENING, not SAFETY: the ask is a door/garage state
     # usable independently of the alarm. Sourced from HTS `0x33`
     # (`coordinator._maybe_apply_hts_contact_state`); reads closed until the
     # first status row after a cold install (the persisted device cache
@@ -148,6 +148,12 @@ _DEVICE_TYPE_SENSORS: dict[str, list[str]] = {
     "motion_protect_curtain_outdoor_base": ["motion_detected", "tamper"],
     "motion_protect_curtain_outdoor_mini": ["motion_detected", "tamper"],
     "motion_protect_curtain_outdoor_plus": ["motion_detected", "tamper"],
+    # #434: DualCurtain Outdoor was absent from this map, so it fell through to
+    # the tamper-only default and produced no motion entity at all. `motion_detected`
+    # is parsed from the family-agnostic device-status oneof, so no per-family
+    # plumbing is needed. Its two detection channels are NOT separable: nothing
+    # the hub reports distinguishes them, so this is the one combined sensor.
+    "dual_curtain_outdoor": ["motion_detected", "tamper"],
     "motion_protect_g3": ["motion_detected", "tamper"],
     "motion_protect_g3_fibra": ["motion_detected", "tamper"],
     "motion_protect_g3_fibra_new": ["motion_detected", "tamper"],

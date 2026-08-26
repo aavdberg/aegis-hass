@@ -98,6 +98,12 @@ class TestBinarySensorTypes:
         assert "external_contact_open" in _DEVICE_TYPE_SENSORS["wire_input_mt"]
         assert "external_contact_open" not in _DEVICE_TYPE_SENSORS["wire_input"]
 
+    def test_dual_curtain_outdoor_gets_a_motion_sensor(self) -> None:
+        # #434: the family was missing from the map, so it fell through to the
+        # tamper-only default and the detector produced no motion entity —
+        # invisible to every perimeter automation.
+        assert _DEVICE_TYPE_SENSORS["dual_curtain_outdoor"] == ["motion_detected", "tamper"]
+
     def test_vibration_sensor_type_exists(self) -> None:
         assert "vibration" in BINARY_SENSOR_TYPES
 

@@ -3224,6 +3224,26 @@ class TestHtsContactState:
 
         coordinator.async_set_updated_data.assert_not_called()
 
+    def test_the_no_nc_mode_key_is_not_consumed(self) -> None:
+        """`0x4A` (the input's NO/NC mode) must not influence the reading.
+
+        The hub already applies the polarity: Taknok's four-state capture
+        (2026-08-25) has `00` meaning "away from rest" in BOTH modes. XOR-ing
+        the mode in would recover the RAW circuit state, which inverts
+        against the door on NO wiring. Both mode values must therefore give
+        the same answer for the same `0x33`.
+        """
+        readings = []
+        for mode in (b"\x00", b"\x01"):  # NO, NC
+            coordinator = _make_coordinator()
+            coordinator.devices["082639CE"] = self._make_device()
+            coordinator.async_set_updated_data = MagicMock()
+
+            coordinator._on_hts_device_kv("0029B936", "082639CE", {0x33: b"\x00", 0x4A: mode})
+
+            readings.append(coordinator.devices["082639CE"].statuses["external_contact_open"])
+        assert readings == [True, True]
+
     def test_contact_state_is_in_the_snapshot_carry(self) -> None:
         """gRPC has NO source for this key — a snapshot omitting it is never
         a signal, and only HTS itself (≤60 s cadence) updates or withdraws it."""
