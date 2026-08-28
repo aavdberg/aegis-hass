@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.diagnostics import async_redact_data
@@ -243,4 +244,38 @@ async def async_get_config_entry_diagnostics(
         },
         "stream_tasks": len(coordinator._stream_tasks),
         "notification_listener": coordinator.notification_listener is not None,
+        # Push delivery health (#437). A registration Ajax accepts and then
+        # never delivers to produces no error anywhere: the client connects,
+        # stays connected, and simply receives nothing. `ever_delivered` is the
+        # field that separates that from a quiet house, because it is persisted
+        # per credential set instead of resetting on every restart. The
+        # fingerprint identifies the credential set without carrying any of the
+        # four values, all of which are in `TO_REDACT` above.
+        "push": _push_diagnostics(coordinator.notification_listener),
+    }
+
+
+def _push_diagnostics(listener: Any) -> dict[str, Any]:  # noqa: ANN401
+    """Summarise push delivery for the dump (#437).
+
+    Ages are relative because the underlying stamps are `time.monotonic()`,
+    which has no meaning as a wall clock. Relative is also the more useful
+    form here: "connected 4 h, never delivered" is the whole diagnosis.
+    """
+    if listener is None:
+        return {"configured": False}
+    started_at = listener._fcm_client_started_at
+    last_push_at = listener.last_push_at
+    now = time.monotonic()
+    return {
+        "configured": True,
+        "connected": listener.is_fcm_connected,
+        "client_connected_for_seconds": (
+            round(now - started_at) if started_at is not None else None
+        ),
+        "pushes_received_since_start": listener.pushes_received,
+        "last_push_seconds_ago": (round(now - last_push_at) if last_push_at is not None else None),
+        "ever_delivered": listener.ever_delivered,
+        "first_delivery_at": listener.first_delivery_at,
+        "creds_fingerprint": listener.creds_fingerprint,
     }
