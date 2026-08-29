@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Diagnostics report whether push has ever delivered anything (#437).** The dump gains a `push` block: whether the client is connected and for how long, how many pushes have arrived since startup, when the last one landed, and — the field that matters — `ever_delivered`, whether this credential set has *ever* delivered a single push. That last one is persisted and keyed to a fingerprint of the four FCM values, so it survives restarts and resets by itself when the values change. The two existing counters are per-process, which is why an FCM registration that Ajax accepts and then never delivers to has been indistinguishable, after every restart, from a house that simply had no events: the client connects, stays connected, and receives nothing, with no error raised anywhere. Diagnosing that state in #359 took a month and 40 comments of logs; the first diagnostics download now answers it. Found through @aavdberg's captures, which is what made the shape of the hole visible. No additional requests to Ajax — it only counts what already flows.
+
 ## [1.17.1] - 2026-08-26
 
 Consolidates the `1.17.1-beta.1` → `beta.7` series, same bits as `beta.7`. Three of the six changes were confirmed directly on the reporters' own hardware: the recorder card by @pvangorp (7/7 channels), the dimmer by @mediaman66-dev, and the MultiTransmitter contact state by @Taknok's four-state capture — which also caught the first beta reading that state backwards, alongside @mfroger's report.

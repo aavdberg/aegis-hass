@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
 
 from custom_components.aegis_ajax import notification_event_parser
 from custom_components.aegis_ajax.const import (
@@ -52,6 +53,7 @@ STORAGE_KEY = f"{DOMAIN}_fcm_credentials"
 # Google terminally rejected, so we don't re-hit the Firebase project on every
 # restart with a key we already know is wrong (#227).
 REJECTED_STORAGE_KEY = f"{DOMAIN}_fcm_rejected"
+DELIVERY_STORAGE_KEY = f"{DOMAIN}_fcm_delivery"
 STORAGE_VERSION = 1
 
 # Ajax dispatches two FCM messages per security transition (one user-facing
@@ -197,6 +199,25 @@ class AjaxNotificationListener:
         # doesn't double-count.
         self._pushes_received: int = 0
         self._last_push_at: float | None = None
+        # #437: the two counters above are per-process, so after every restart
+        # a registration that Ajax accepts and never delivers to is
+        # indistinguishable from one that simply hasn't seen an event yet.
+        # That is the mechanical reason #359 could stay in total silence for a
+        # month without producing any observable signal. This record survives
+        # restarts, and it is keyed to the credential fingerprint so that
+        # re-entering the four values resets the evidence by construction.
+        self._delivery_store: Store[dict[str, Any]] = Store(
+            hass, STORAGE_VERSION, DELIVERY_STORAGE_KEY
+        )
+        self._creds_fingerprint: str = _fcm_creds_hash(
+            fcm_project_id=fcm_project_id,
+            fcm_app_id=fcm_app_id,
+            fcm_api_key=fcm_api_key,
+            fcm_sender_id=fcm_sender_id,
+        )[:16]
+        self._ever_delivered: bool = False
+        self._first_delivery_at: str | None = None
+        self._delivery_record_unsaved: bool = False
 
     @property
     def pushes_received(self) -> int:
@@ -207,6 +228,26 @@ class AjaxNotificationListener:
     def last_push_at(self) -> float | None:
         """`time.monotonic()` of the most recent non-deduped push, or None."""
         return self._last_push_at
+
+    @property
+    def creds_fingerprint(self) -> str:
+        """Short digest of the four FCM values — never the values themselves.
+
+        Truncated to 16 chars deliberately: it only ever has to answer "are
+        these the same credentials the stored record was written for", and a
+        fingerprint that short is not a re-derivable digest of the secret.
+        """
+        return self._creds_fingerprint
+
+    @property
+    def ever_delivered(self) -> bool:
+        """True if this credential set has ever delivered a push (#437)."""
+        return self._ever_delivered
+
+    @property
+    def first_delivery_at(self) -> str | None:
+        """ISO timestamp of the first push this credential set ever delivered."""
+        return self._first_delivery_at
 
     @property
     def is_fcm_connected(self) -> bool:
@@ -296,6 +337,7 @@ class AjaxNotificationListener:
         # Load or create FCM credentials
         stored = await self._store.async_load()
         self._credentials = dict(stored) if stored else None
+        await self._async_load_delivery_record()
 
         fcm_config = FcmRegisterConfig(
             project_id=self._fcm_project_id,
@@ -672,6 +714,10 @@ class AjaxNotificationListener:
         """
         if now is None:
             now = time.monotonic()
+        # Flush a first-delivery mark made on the worker thread (#437). Before
+        # the liveness branches below, all of which can return early.
+        if self._delivery_record_unsaved:
+            await self._async_persist_delivery_record()
         client = self._push_client
         if client is not None:
             tasks = getattr(client, "tasks", None) or []
@@ -855,6 +901,7 @@ class AjaxNotificationListener:
         # System Health card so users can confirm push delivery is alive.
         self._pushes_received += 1
         self._last_push_at = time.monotonic()
+        self._note_push_delivered()
 
         # Parse event from ENCODED_DATA using compiled protos
         if encoded_data:
@@ -866,6 +913,67 @@ class AjaxNotificationListener:
                 self._hass.async_create_task,
                 self._coordinator.async_request_refresh(),
             )
+
+    async def _async_load_delivery_record(self) -> None:
+        """Restore the delivery record for the CURRENT credential set (#437).
+
+        A record written for other credentials is ignored rather than
+        migrated: after someone re-enters the four values, "delivery already
+        worked once" is no longer a claim about the registration in force, and
+        keeping it would permanently silence the detector this record feeds.
+
+        Never raises. The record is diagnostic, so a storage problem must not
+        be able to stop push from starting.
+        """
+        try:
+            stored = await self._delivery_store.async_load()
+        except Exception:
+            _LOGGER.debug("Could not load the FCM delivery record", exc_info=True)
+            return
+        if not stored or stored.get("hash") != self._creds_fingerprint:
+            return
+        self._ever_delivered = True
+        self._first_delivery_at = stored.get("first_delivery_at")
+
+    def _note_push_delivered(self) -> None:
+        """Mark that this credential set has now delivered at least one push.
+
+        Runs on the `firebase_messaging` worker thread, so it touches plain
+        attributes only and does not schedule anything: the supervisor tick,
+        which is already on the event loop, picks the write up within a minute.
+        Deliberately NOT marshalled from here — `_on_notification` marshals
+        exactly one call to the loop (the refresh) and adding a second hop per
+        push buys nothing for a record that is written once per credential set.
+
+        Idempotent: the first delivery is the one worth dating, and a later
+        push must not move the timestamp.
+
+        Worst case, a restart inside that minute loses the record and the next
+        delivered push re-marks it. Acceptable — the record's job is to make a
+        registration that NEVER delivers visible, and that case has no push to
+        race with.
+        """
+        if self._ever_delivered:
+            return
+        self._ever_delivered = True
+        self._first_delivery_at = dt_util.utcnow().isoformat()
+        self._delivery_record_unsaved = True
+
+    async def _async_persist_delivery_record(self) -> None:
+        """Write the delivery record. Only ever called on a first delivery,
+        so this touches `.storage` once per credential set rather than once
+        per push."""
+        try:
+            await self._delivery_store.async_save(
+                {
+                    "hash": self._creds_fingerprint,
+                    "first_delivery_at": self._first_delivery_at,
+                }
+            )
+        except Exception:
+            _LOGGER.debug("Could not persist the FCM delivery record", exc_info=True)
+            return
+        self._delivery_record_unsaved = False
 
     def _is_stale_push(self, encoded_data: str) -> bool:
         """Return True when an FCM push carries a `Notification.server_timestamp`

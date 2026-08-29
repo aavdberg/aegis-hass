@@ -87,6 +87,60 @@ class TestAsyncGetConfigEntryDiagnostics:
         return e
 
     @pytest.mark.asyncio
+    async def test_push_delivery_is_reported(
+        self, coordinator: MagicMock, entry: MagicMock
+    ) -> None:
+        """#437: the dump has to answer "has push ever delivered here".
+
+        A registration Ajax accepts and never delivers to raises no error
+        anywhere — the client connects, stays connected and receives nothing —
+        so `ever_delivered` is the field that separates that from a house that
+        simply had no events.
+        """
+        listener = coordinator.notification_listener
+        listener.is_fcm_connected = True
+        listener.pushes_received = 0
+        listener.last_push_at = None
+        listener.ever_delivered = False
+        listener.first_delivery_at = None
+        listener.creds_fingerprint = "abc123def456"
+        listener._fcm_client_started_at = None
+
+        push = (await async_get_config_entry_diagnostics(MagicMock(), entry))["push"]
+
+        assert push["configured"] is True
+        assert push["connected"] is True
+        assert push["ever_delivered"] is False
+        assert push["pushes_received_since_start"] == 0
+        assert push["last_push_seconds_ago"] is None
+        assert push["creds_fingerprint"] == "abc123def456"
+
+    @pytest.mark.asyncio
+    async def test_push_reports_not_configured_without_a_listener(
+        self, coordinator: MagicMock, entry: MagicMock
+    ) -> None:
+        coordinator.notification_listener = None
+
+        result = await async_get_config_entry_diagnostics(MagicMock(), entry)
+
+        assert result["push"] == {"configured": False}
+
+    @pytest.mark.asyncio
+    async def test_push_block_carries_no_fcm_credentials(
+        self, coordinator: MagicMock, entry: MagicMock
+    ) -> None:
+        """The fingerprint identifies the credential set; the four values
+        themselves are redacted everywhere else in the dump and must not
+        reappear here."""
+        secret = "AIza" + "x" * 35
+        entry.data = {**entry.data, "fcm_api_key": secret}
+        coordinator.notification_listener.creds_fingerprint = "fingerprintonly"
+
+        result = await async_get_config_entry_diagnostics(MagicMock(), entry)
+
+        assert secret not in str(result["push"])
+
+    @pytest.mark.asyncio
     async def test_returns_dict(self, entry: MagicMock) -> None:
         result = await async_get_config_entry_diagnostics(MagicMock(), entry)
         assert isinstance(result, dict)
