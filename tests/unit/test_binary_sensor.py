@@ -20,6 +20,7 @@ from custom_components.aegis_ajax.binary_sensor import (
     AjaxBinarySensor,
     AjaxConnectivitySensor,
     AjaxCraConnectionSensor,
+    AjaxHubNetworkBinarySensor,
     AjaxHubPowerSensor,
     AjaxHubWifiSensor,
     AjaxProblemSensor,
@@ -1092,6 +1093,95 @@ class TestAjaxHubWifiSensor:
         sensor = AjaxHubWifiSensor(coordinator, "hub-1")
         assert sensor.available is True
         assert sensor.is_on is True
+
+
+class TestAjaxHubSirenSettingSensors:
+    """#438 — hub siren settings ride the SETTINGS_BODY hub row.
+
+    None means the hub's firmware never reported the sub-key, and the
+    entity must be `unavailable` rather than a misleading `off` — the
+    whole point of #438 is stopping guesswork about siren behaviour.
+    """
+
+    def _make_coordinator(
+        self,
+        siren_on_panic_button: bool | None = True,
+        siren_on_any_tamper: bool | None = False,
+    ) -> MagicMock:
+        hub_device = Device(
+            id="hub-1",
+            hub_id="hub-1",
+            name="Hub Two Plus",
+            device_type="hub_two_plus",
+            room_id=None,
+            group_id=None,
+            state=DeviceState.ONLINE,
+            malfunctions=0,
+            bypassed=False,
+            statuses={},
+            battery=None,
+        )
+        coordinator = MagicMock()
+        coordinator.devices = {"hub-1": hub_device}
+        coordinator.hub_network = {
+            "hub-1": HubNetworkState(
+                siren_on_panic_button=siren_on_panic_button,
+                siren_on_any_tamper=siren_on_any_tamper,
+            )
+        }
+        return coordinator
+
+    def test_panic_button_setting_on(self) -> None:
+        sensor = AjaxHubNetworkBinarySensor(
+            self._make_coordinator(siren_on_panic_button=True), "hub-1", "siren_on_panic_button"
+        )
+        assert sensor.is_on is True
+        assert sensor.available is True
+
+    def test_panic_button_setting_off(self) -> None:
+        sensor = AjaxHubNetworkBinarySensor(
+            self._make_coordinator(siren_on_panic_button=False), "hub-1", "siren_on_panic_button"
+        )
+        assert sensor.is_on is False
+        assert sensor.available is True
+
+    def test_tamper_setting_reads_its_own_attr(self) -> None:
+        sensor = AjaxHubNetworkBinarySensor(
+            self._make_coordinator(siren_on_any_tamper=True), "hub-1", "siren_on_any_tamper"
+        )
+        assert sensor.is_on is True
+
+    def test_unavailable_when_hub_never_reported_the_key(self) -> None:
+        sensor = AjaxHubNetworkBinarySensor(
+            self._make_coordinator(siren_on_panic_button=None), "hub-1", "siren_on_panic_button"
+        )
+        assert sensor.available is False
+
+    def test_stays_available_on_cached_value_when_hts_dead(self) -> None:
+        # Settings don't change at runtime; the cached value through an
+        # HTS dropout is still correct, unlike mains_power (#146).
+        coordinator = self._make_coordinator(siren_on_panic_button=True)
+        coordinator.is_hts_alive = False
+        sensor = AjaxHubNetworkBinarySensor(coordinator, "hub-1", "siren_on_panic_button")
+        assert sensor.available is True
+        assert sensor.is_on is True
+
+    def test_unique_ids_and_translation_keys(self) -> None:
+        coordinator = self._make_coordinator()
+        panic = AjaxHubNetworkBinarySensor(coordinator, "hub-1", "siren_on_panic_button")
+        tamper = AjaxHubNetworkBinarySensor(coordinator, "hub-1", "siren_on_any_tamper")
+        assert panic._attr_unique_id == "aegis_ajax_hub-1_siren_on_panic_button"
+        assert tamper._attr_unique_id == "aegis_ajax_hub-1_siren_on_any_tamper"
+        assert panic._attr_translation_key == "siren_on_panic_button"
+        assert tamper._attr_translation_key == "siren_on_any_tamper"
+
+    def test_no_device_class(self) -> None:
+        # Neither CONNECTIVITY nor PLUG fits an "is this behaviour
+        # enabled" setting; a device class would mislabel the states.
+        sensor = AjaxHubNetworkBinarySensor(
+            self._make_coordinator(), "hub-1", "siren_on_panic_button"
+        )
+        assert sensor._attr_device_class is None
 
 
 class TestAjaxHubPowerSensor:

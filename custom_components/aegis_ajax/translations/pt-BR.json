@@ -374,6 +374,12 @@
             },
             "external_contact_open": {
                 "name": "Contato"
+            },
+            "siren_on_panic_button": {
+                "name": "Sirene com botão de pânico"
+            },
+            "siren_on_any_tamper": {
+                "name": "Sirene com violação"
             }
         },
         "sensor": {

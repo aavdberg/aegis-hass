@@ -390,6 +390,12 @@
             },
             "external_contact_open": {
                 "name": "Contacto"
+            },
+            "siren_on_panic_button": {
+                "name": "Sirena ante botón de pánico"
+            },
+            "siren_on_any_tamper": {
+                "name": "Sirena ante manipulación"
             }
         },
         "sensor": {

@@ -38,6 +38,17 @@ KEY_WIFI_GATE = 44
 KEY_WIFI_DNS = 45
 KEY_WIFI_DHCP = 46
 KEY_ACTIVE_CHANNELS = 72
+# Hub siren behaviour settings (#438). Declared only in the legacy
+# `hub_device.proto` (fields 101/102, both `bool`), which is not
+# gRPC-reachable — the hub's HTS row is the sole live source. Confirmed
+# present on real hardware 2026-08-29, but ONLY in SETTINGS_BODY (the
+# 60 s STATUS_BODY refresh skips them), so the values load at
+# startup/reload and then hold until the next SETTINGS_BODY. The wire
+# width is unobserved: decode by integer magnitude, and keep the raw
+# value so a hub that packs these differently is answerable from a
+# diagnostics download.
+KEY_SIREN_ON_ANY_TAMPER = 0x65
+KEY_SIREN_ON_PANIC_BUTTON = 0x66
 KEY_ETH_ENABLED = 74
 KEY_WIFI_ENABLED = 75
 KEY_GPRS_ENABLED = 76
@@ -104,6 +115,14 @@ class HubNetworkState:
     # it differently should be answerable from a diagnostics download rather
     # than from another capture session.
     firmware_version_raw: int = 0
+
+    # Hub siren behaviour settings (#438). None means this hub's firmware
+    # hasn't reported the sub-key (yet) — callers must render "unknown",
+    # never "off". The raw integers exist for diagnostics only.
+    siren_on_panic_button: bool | None = None
+    siren_on_any_tamper: bool | None = None
+    siren_on_panic_button_raw: int | None = None
+    siren_on_any_tamper_raw: int | None = None
 
     @property
     def primary_connection(self) -> str:
@@ -466,6 +485,18 @@ def parse_hub_params(
         raw = params[KEY_HUB_FIRMWARE]
         updates["firmware_version"] = _version_val(raw)
         updates["firmware_version_raw"] = int.from_bytes(raw, "big") if len(raw) == 4 else 0
+
+    # Siren settings (#438) ----------------------------------------------------
+    if KEY_SIREN_ON_PANIC_BUTTON in params:
+        siren_raw = _int_be_val(params[KEY_SIREN_ON_PANIC_BUTTON])
+        if siren_raw is not None:
+            updates["siren_on_panic_button"] = siren_raw != 0
+            updates["siren_on_panic_button_raw"] = siren_raw
+    if KEY_SIREN_ON_ANY_TAMPER in params:
+        siren_raw = _int_be_val(params[KEY_SIREN_ON_ANY_TAMPER])
+        if siren_raw is not None:
+            updates["siren_on_any_tamper"] = siren_raw != 0
+            updates["siren_on_any_tamper_raw"] = siren_raw
 
     # Ethernet ---------------------------------------------------------------
     if KEY_ETH_ENABLED in params:

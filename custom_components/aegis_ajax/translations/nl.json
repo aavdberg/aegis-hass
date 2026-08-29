@@ -374,6 +374,12 @@
             },
             "external_contact_open": {
                 "name": "Contact"
+            },
+            "siren_on_panic_button": {
+                "name": "Sirene bij paniekknop"
+            },
+            "siren_on_any_tamper": {
+                "name": "Sirene bij sabotage"
             }
         },
         "sensor": {

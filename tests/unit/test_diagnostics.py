@@ -141,6 +141,65 @@ class TestAsyncGetConfigEntryDiagnostics:
         assert secret not in str(result["push"])
 
     @pytest.mark.asyncio
+    async def test_hub_siren_settings_dumped_with_raws(
+        self, coordinator: MagicMock, entry: MagicMock
+    ) -> None:
+        """#438: the dump must answer "what does the hub think" — including
+        the raw wire integers, because the byte width of these keys is
+        unobserved and a hub that packs them differently has to be
+        answerable from a diagnostics download, not a capture session."""
+        from custom_components.aegis_ajax.api.hts.hub_state import HubNetworkState
+
+        coordinator.hub_network = {
+            "hub-1": HubNetworkState(
+                siren_on_panic_button=True,
+                siren_on_any_tamper=False,
+                siren_on_panic_button_raw=1,
+                siren_on_any_tamper_raw=0,
+            )
+        }
+
+        result = await async_get_config_entry_diagnostics(MagicMock(), entry)
+
+        assert result["hub_siren_settings"]["hub-1"] == {
+            "on_panic_button": True,
+            "on_any_tamper": False,
+            "on_panic_button_raw": 1,
+            "on_any_tamper_raw": 0,
+        }
+
+    @pytest.mark.asyncio
+    async def test_hub_siren_settings_false_survives_the_dump(
+        self, coordinator: MagicMock, entry: MagicMock
+    ) -> None:
+        """A disabled setting is a real answer — it must not collapse to
+        null the way the `(state and value) or None` firmware idiom would."""
+        from custom_components.aegis_ajax.api.hts.hub_state import HubNetworkState
+
+        coordinator.hub_network = {
+            "hub-1": HubNetworkState(
+                siren_on_panic_button=False,
+                siren_on_panic_button_raw=0,
+            )
+        }
+
+        result = await async_get_config_entry_diagnostics(MagicMock(), entry)
+
+        block = result["hub_siren_settings"]["hub-1"]
+        assert block["on_panic_button"] is False
+        assert block["on_any_tamper"] is None
+
+    @pytest.mark.asyncio
+    async def test_hub_siren_settings_null_when_hub_never_reported(
+        self, coordinator: MagicMock, entry: MagicMock
+    ) -> None:
+        coordinator.hub_network = {}
+
+        result = await async_get_config_entry_diagnostics(MagicMock(), entry)
+
+        assert result["hub_siren_settings"] == {"hub-1": None}
+
+    @pytest.mark.asyncio
     async def test_returns_dict(self, entry: MagicMock) -> None:
         result = await async_get_config_entry_diagnostics(MagicMock(), entry)
         assert isinstance(result, dict)

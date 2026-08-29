@@ -374,6 +374,12 @@
             },
             "external_contact_open": {
                 "name": "Styk"
+            },
+            "siren_on_panic_button": {
+                "name": "Syrena przy przycisku napadowym"
+            },
+            "siren_on_any_tamper": {
+                "name": "Syrena przy sabotażu"
             }
         },
         "sensor": {

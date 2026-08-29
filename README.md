@@ -291,6 +291,8 @@ What it does (controlled by hub configuration):
 - Forwards the panic to the monitoring station.
 - Optionally activates sirens depending on the hub setting `panic_siren_on_panic_button`.
 
+Whether sirens sound is decided **entirely by the hub** — the panic request carries no siren field, so the integration cannot influence it. To see what your hub will do, enable the diagnostic binary sensors **Siren on panic button** and **Siren on tamper** on the hub device (disabled by default). They are read-only mirrors of the hub configuration; changing the behaviour is done in the Ajax app, and a change made there becomes visible after the integration reloads.
+
 ### Service: `aegis_ajax.press_panic_button`
 
 | Field | Required | Description |
@@ -336,6 +338,7 @@ An [example automations file](docs/automations.yaml) is also available with 24 a
 - **Cellular connected** — binary sensor for GSM/4G connection status
 - **GSM type** — sensor showing connection type (2G/3G/4G)
 - **Hub network sensors** — Ethernet/Wi-Fi connectivity, Wi-Fi SSID/signal, Ethernet/Wi-Fi IP addressing, cellular signal/network, and mains power status
+- **Siren on panic button / Siren on tamper** — disabled-by-default diagnostic binary sensors mirroring the hub's siren behaviour settings (read-only; configured in the Ajax app, refreshed on integration reload)
 - **Lid opened** — tamper detection for the hub enclosure
 - **Battery** — hub battery level
 - **IMEI** — hub cellular modem identifier

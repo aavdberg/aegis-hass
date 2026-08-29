@@ -15,6 +15,8 @@ from custom_components.aegis_ajax.api.hts.hub_state import (
     KEY_GSM_SIGNAL_LVL,
     KEY_HUB_FIRMWARE,
     KEY_HUB_POWERED,
+    KEY_SIREN_ON_ANY_TAMPER,
+    KEY_SIREN_ON_PANIC_BUTTON,
     KEY_WIFI_SSID,
     HubNetworkState,
     _bool_val,
@@ -53,6 +55,74 @@ class TestHubNetworkStateDefaults:
         s = HubNetworkState()
         with pytest.raises(dataclasses.FrozenInstanceError):
             s.ethernet_connected = True  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Hub siren settings (#438) — legacy proto fields 101/102 on the hub's
+# SETTINGS_BODY row, confirmed present on real hardware 2026-08-29.
+# ---------------------------------------------------------------------------
+
+
+class TestHubSirenSettings:
+    def test_defaults_are_none(self) -> None:
+        s = HubNetworkState()
+        assert s.siren_on_panic_button is None
+        assert s.siren_on_any_tamper is None
+        assert s.siren_on_panic_button_raw is None
+        assert s.siren_on_any_tamper_raw is None
+
+    def test_one_byte_values(self) -> None:
+        state = parse_hub_params(
+            {
+                KEY_SIREN_ON_PANIC_BUTTON: b"\x01",
+                KEY_SIREN_ON_ANY_TAMPER: b"\x00",
+            }
+        )
+        assert state.siren_on_panic_button is True
+        assert state.siren_on_any_tamper is False
+
+    def test_wider_values_decode_by_magnitude_not_first_byte(self) -> None:
+        # The declared proto type is bool but the HTS wire width is
+        # unobserved for these keys — a 4-byte 00000001 must read as
+        # enabled, so first-byte decoding would be wrong.
+        state = parse_hub_params(
+            {
+                KEY_SIREN_ON_PANIC_BUTTON: b"\x00\x00\x00\x01",
+                KEY_SIREN_ON_ANY_TAMPER: b"\x00\x00\x00\x00",
+            }
+        )
+        assert state.siren_on_panic_button is True
+        assert state.siren_on_any_tamper is False
+
+    def test_raw_values_kept_for_diagnostics(self) -> None:
+        state = parse_hub_params(
+            {
+                KEY_SIREN_ON_PANIC_BUTTON: b"\x00\x02",
+                KEY_SIREN_ON_ANY_TAMPER: b"\x01",
+            }
+        )
+        assert state.siren_on_panic_button_raw == 2
+        assert state.siren_on_any_tamper_raw == 1
+
+    def test_absent_keys_preserve_existing(self) -> None:
+        existing = parse_hub_params(
+            {
+                KEY_SIREN_ON_PANIC_BUTTON: b"\x01",
+                KEY_SIREN_ON_ANY_TAMPER: b"\x00",
+            }
+        )
+        updated = parse_hub_params({KEY_HUB_POWERED: b"\x01"}, existing)
+        assert updated.siren_on_panic_button is True
+        assert updated.siren_on_any_tamper is False
+
+    def test_empty_value_stays_unknown(self) -> None:
+        state = parse_hub_params({KEY_SIREN_ON_PANIC_BUTTON: b""})
+        assert state.siren_on_panic_button is None
+        assert state.siren_on_panic_button_raw is None
+
+    def test_key_numbers_are_the_legacy_proto_field_numbers(self) -> None:
+        assert KEY_SIREN_ON_ANY_TAMPER == 0x65  # field 101
+        assert KEY_SIREN_ON_PANIC_BUTTON == 0x66  # field 102
 
 
 # ---------------------------------------------------------------------------
