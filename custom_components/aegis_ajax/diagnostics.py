@@ -217,6 +217,27 @@ async def async_get_config_entry_diagnostics(
                 {space.hub_id for space in coordinator.spaces.values() if space.hub_id}
             )
         },
+        # Hub siren behaviour settings (#438), read from the hub's
+        # SETTINGS_BODY row. `null` per hub means no SETTINGS_BODY has been
+        # parsed yet; a null *field* inside the block means that hub's
+        # firmware didn't include the sub-key. The raw wire integers ride
+        # along because the byte width of these keys is unobserved — a hub
+        # that packs them differently must be answerable from this file.
+        "hub_siren_settings": {
+            hub_id: (
+                {
+                    "on_panic_button": state.siren_on_panic_button,
+                    "on_any_tamper": state.siren_on_any_tamper,
+                    "on_panic_button_raw": state.siren_on_panic_button_raw,
+                    "on_any_tamper_raw": state.siren_on_any_tamper_raw,
+                }
+                if (state := coordinator.hub_network.get(hub_id)) is not None
+                else None
+            )
+            for hub_id in sorted(
+                {space.hub_id for space in coordinator.spaces.values() if space.hub_id}
+            )
+        },
         # Firmware update state feeding the `update.*` entities (project
         # rule: every entity-driving field is dumped here). Both maps are
         # empty most of the time — Ajax only lists a hub/device while an

@@ -405,6 +405,12 @@ async def async_setup_entry(
                 entities.append(AjaxHubEthernetSensor(coordinator, space.hub_id))
                 entities.append(AjaxHubWifiSensor(coordinator, space.hub_id))
                 entities.append(AjaxHubPowerSensor(coordinator, space.hub_id))
+                entities.append(
+                    AjaxHubNetworkBinarySensor(coordinator, space.hub_id, "siren_on_panic_button")
+                )
+                entities.append(
+                    AjaxHubNetworkBinarySensor(coordinator, space.hub_id, "siren_on_any_tamper")
+                )
 
     # #231: a previous version attached a CO sensor to the generic FireProtect 2
     # mapping. HA never evicts an entity its platform stopped providing, so on
@@ -732,12 +738,17 @@ class _HubBinSpec:
     means the entity reports `unavailable` when HTS is disconnected
     instead of returning the cached last-known state — see #146 for
     why mains_power needs that and the connectivity sensors don't.
+    `none_is_unavailable` is for attributes typed `bool | None`, where
+    None means "this hub's firmware never reported the sub-key": the
+    entity must go unavailable rather than render a misleading `off`
+    (#438).
     """
 
     translation_key: str
     state_attr: str
-    device_class: BinarySensorDeviceClass
+    device_class: BinarySensorDeviceClass | None
     require_hts_alive: bool = False
+    none_is_unavailable: bool = False
 
 
 _HUB_BIN_SPECS_BY_KEY: dict[str, _HubBinSpec] = {
@@ -756,6 +767,24 @@ _HUB_BIN_SPECS_BY_KEY: dict[str, _HubBinSpec] = {
         state_attr="externally_powered",
         device_class=BinarySensorDeviceClass.PLUG,
         require_hts_alive=True,
+    ),
+    # #438 — hub-owned siren behaviour settings, sourced from the hub's
+    # SETTINGS_BODY row (loaded at startup/reload; the 60 s STATUS_BODY
+    # refresh doesn't carry them, and they don't change at runtime).
+    # No device class: neither CONNECTIVITY nor PLUG describes an
+    # "is this behaviour enabled" flag. Read-only by design — the panic
+    # request carries no siren field, the hub owns this behaviour.
+    "siren_on_panic_button": _HubBinSpec(
+        translation_key="siren_on_panic_button",
+        state_attr="siren_on_panic_button",
+        device_class=None,
+        none_is_unavailable=True,
+    ),
+    "siren_on_any_tamper": _HubBinSpec(
+        translation_key="siren_on_any_tamper",
+        state_attr="siren_on_any_tamper",
+        device_class=None,
+        none_is_unavailable=True,
     ),
 }
 
@@ -777,7 +806,10 @@ class AjaxHubNetworkBinarySensor(_HubNetworkBinarySensor):
         if self._spec.require_hts_alive:
             # #146: don't keep reporting cached "on" through an HTS outage
             # for sensors whose stale value could silence an automation.
-            return base and self.coordinator.is_hts_alive
+            base = base and self.coordinator.is_hts_alive
+        if base and self._spec.none_is_unavailable:
+            state = self.coordinator.hub_network.get(self._hub_id)
+            base = state is not None and getattr(state, self._spec.state_attr, None) is not None
         return base
 
     @property
