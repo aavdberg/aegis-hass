@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.18.0-beta.1] - 2026-09-01
+
+Both changes are diagnostic-only and add zero Ajax API calls. The push delivery record ships with two installs already waiting to use it (#359); the siren settings were probed and validated on real hardware before implementation, with the caveat that a hub with sirens still owes the first `true` reading.
 
 ### Added
 - **The hub's siren behaviour settings are now visible (#438).** Two disabled-by-default diagnostic binary sensors on the hub device — "Siren on panic button" and "Siren on tamper" — plus a `hub_siren_settings` block in the diagnostics dump. When a panic fires and the sirens stay quiet, the answer used to be guesswork (#435): the panic request carries no siren field, the hub alone decides. These settings live only in the hub's legacy device model, unreachable over gRPC, so they are read from the hub's HTS settings row — confirmed present on real hardware first. Read-only by design; the values load at startup/reload (the periodic status refresh doesn't carry them) and a change made in the Ajax app becomes visible after a reload. No additional requests to Ajax: the settings row already flows at startup.
