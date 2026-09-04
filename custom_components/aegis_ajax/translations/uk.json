@@ -375,6 +375,9 @@
             "external_contact_open": {
                 "name": "Контакт"
             },
+            "delay_when_leaving": {
+              "name": "Затримка при виході"
+            },
             "siren_on_panic_button": {
                 "name": "Сирена при тривожній кнопці"
             },

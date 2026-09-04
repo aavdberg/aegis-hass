@@ -375,6 +375,9 @@
             "external_contact_open": {
                 "name": "Contact"
             },
+            "delay_when_leaving": {
+              "name": "Vertraging bij vertrek"
+            },
             "siren_on_panic_button": {
                 "name": "Sirene bij paniekknop"
             },

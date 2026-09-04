@@ -375,6 +375,9 @@
             "external_contact_open": {
                 "name": "Contact"
             },
+            "delay_when_leaving": {
+              "name": "Întârziere la plecare"
+            },
             "siren_on_panic_button": {
                 "name": "Sirenă la buton de panică"
             },

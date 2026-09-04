@@ -30,8 +30,10 @@ _LOGGER = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class BinarySensorTypeInfo:
-    device_class: BinarySensorDeviceClass
+    device_class: BinarySensorDeviceClass | None
     translation_key: str | None = None
+    entity_category: EntityCategory | None = None
+    enabled_default: bool = True
 
 
 BINARY_SENSOR_TYPES: dict[str, BinarySensorTypeInfo] = {
@@ -74,7 +76,39 @@ BINARY_SENSOR_TYPES: dict[str, BinarySensorTypeInfo] = {
     "external_contact_open": BinarySensorTypeInfo(
         BinarySensorDeviceClass.OPENING, "external_contact_open"
     ),
+    # #443: read-only mirror of the detector's "Delay when leaving" setting,
+    # which rides the light-device stream as a presence-only status. A
+    # configuration flag, not a state: no device class fits, diagnostic, and
+    # off by default like the hub siren settings (#438). The hub-side exit
+    # delay itself never surfaces as `arming` (the app's own timer does), so
+    # this is the one thing about the delay HA can currently show.
+    "delay_when_leaving": BinarySensorTypeInfo(
+        None,
+        "delay_when_leaving",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        enabled_default=False,
+    ),
 }
+
+# Device families whose Ajax model carries an arming part (arm/alarm delays):
+# door, motion and combi detectors plus the MotionCam line. Keypads, sirens,
+# fire detectors, wire inputs and hubs have no leaving delay to mirror.
+_ARMING_DELAY_FAMILY_PREFIXES: tuple[str, ...] = (
+    "door_protect",
+    "motion_protect",
+    "dual_curtain_outdoor",
+    "motion_cam",
+    "combi_protect",
+)
+
+
+def _sensor_keys_for(device_type: str) -> list[str]:
+    """Status keys that get a binary sensor for this device family."""
+    keys = list(_DEVICE_TYPE_SENSORS.get(device_type, ["tamper"]))
+    if device_type.startswith(_ARMING_DELAY_FAMILY_PREFIXES):
+        keys.append("delay_when_leaving")
+    return keys
+
 
 # Devices whose single "alert" entity should OR-reduce several hub status
 # oneofs into one state, because Ajax hub firmwares disagree on which oneof
@@ -372,7 +406,7 @@ async def async_setup_entry(
     coordinator: AjaxCobrandedCoordinator = entry.runtime_data
     entities: list[BinarySensorEntity] = []
     for device_id, device in coordinator.devices.items():
-        sensor_keys = _DEVICE_TYPE_SENSORS.get(device.device_type, ["tamper"])
+        sensor_keys = _sensor_keys_for(device.device_type)
         # #231 data probe: CO presence on the FireProtect 2 line is decided by
         # the object_type variant, but the cloud reports several units under
         # generic/non-sensor-encoded types (`fire_protect_two`, `_base`,
@@ -503,6 +537,9 @@ class AjaxBinarySensor(CoordinatorEntity[AjaxCobrandedCoordinator], BinarySensor
         self._attr_unique_id = f"aegis_ajax_{device_id}_{status_key}"
         self._attr_device_class = self._type_info.device_class
         self._attr_translation_key = self._type_info.translation_key
+        if self._type_info.entity_category is not None:
+            self._attr_entity_category = self._type_info.entity_category
+        self._attr_entity_registry_enabled_default = self._type_info.enabled_default
         device = coordinator.devices.get(device_id)
         if device:
             self._attr_device_info = build_device_info(

@@ -1252,6 +1252,21 @@ class TestStatusParser:
         result = DevicesApi._parse_statuses([status])
         assert result.get("leak_detected") is True
 
+    def test_delay_when_leaving_status(self) -> None:
+        # #443: the per-detector "Delay when leaving" setting rides the light
+        # stream as a presence-only status. Pinned because the new binary
+        # sensor reads exactly this key.
+        status = MagicMock()
+        status.WhichOneof.return_value = "delay_when_leaving"
+        result = DevicesApi._parse_statuses([status])
+        assert result.get("delay_when_leaving") is True
+
+    def test_delay_when_leaving_absent_leaves_no_key(self) -> None:
+        status = MagicMock()
+        status.WhichOneof.return_value = "door_opened"
+        result = DevicesApi._parse_statuses([status])
+        assert "delay_when_leaving" not in result
+
     def test_tamper_status(self) -> None:
         # NOTE: the current proto has NO plain `tamper` oneof case — this
         # exercises the defensive forward-compat branch only, which is why it
