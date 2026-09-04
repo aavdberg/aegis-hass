@@ -914,6 +914,35 @@ class TestOptionsFlow:
             assert k not in stored_options
 
     @pytest.mark.asyncio
+    async def test_options_flow_trims_fcm_values(self) -> None:
+        """Whitespace pasted with FCM credentials must not change their identity."""
+        flow, _ = self._make_flow(data={"email": "x@y"})
+        flow.async_create_entry = MagicMock(return_value={"type": "create_entry"})
+        flow.hass.config_entries.async_update_entry = MagicMock()
+
+        await flow.async_step_init(
+            {
+                "poll_interval": 60,
+                "use_pin_code": False,
+                "fcm_project_id": " project ",
+                "fcm_app_id": " app ",
+                "fcm_api_key": " key ",
+                "fcm_sender_id": " sender ",
+            }
+        )
+
+        new_data = flow.hass.config_entries.async_update_entry.call_args.kwargs["data"]
+        assert {
+            key: new_data[key]
+            for key in ("fcm_project_id", "fcm_app_id", "fcm_api_key", "fcm_sender_id")
+        } == {
+            "fcm_project_id": "project",
+            "fcm_app_id": "app",
+            "fcm_api_key": "key",
+            "fcm_sender_id": "sender",
+        }
+
+    @pytest.mark.asyncio
     async def test_options_flow_clearing_three_text_fcm_fields_removes_them(self) -> None:
         """Empty strings for the three text FCM fields remove them (#138).
 

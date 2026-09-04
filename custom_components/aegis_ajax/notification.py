@@ -346,7 +346,19 @@ class AjaxNotificationListener:
             messaging_sender_id=self._fcm_sender_id,
         )
 
-        if not self._credentials:
+        stored_registration = (
+            self._credentials.get("fcm", {}).get("registration")
+            if isinstance(self._credentials, dict)
+            and isinstance(self._credentials.get("fcm"), dict)
+            else None
+        )
+        stored_token = (
+            stored_registration.get("token") if isinstance(stored_registration, dict) else None
+        )
+        if not stored_token:
+            if self._credentials:
+                _LOGGER.info("Stored FCM registration has no token; registering again")
+                self._credentials = None
             # Short-circuit if this exact credential set was already rejected
             # by Google (#227). Without working credentials, `async_start` runs
             # the registration again on every restart / reload; for a
