@@ -442,6 +442,7 @@ class AjaxNotificationListener:
                     await fcm_session.close()
 
         # Extract FCM token and register with Ajax servers
+        assert self._credentials is not None
         fcm_data = self._credentials.get("fcm", {})
         registration = fcm_data.get("registration", {}) if isinstance(fcm_data, dict) else {}
         fcm_token = registration.get("token") if isinstance(registration, dict) else None
