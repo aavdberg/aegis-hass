@@ -76,6 +76,7 @@ class TestClientSessions:
         sessions = await task
         assert len(sessions) == 10
         assert sum(session.is_current for session in sessions) == 1
+        assert sessions[0].session_id == 1773906436096
         assert sessions[0].device_model == "SM-X000X"
         assert sessions[0].application == "Protegim_alarma"
         assert sessions[4].device_model == "SM-A536B"
@@ -106,6 +107,24 @@ class TestClientSessions:
             await client.get_client_sessions()
 
         assert client._pending_user_registration_response is None
+
+    @pytest.mark.asyncio
+    async def test_kill_client_sessions_uses_created_at_and_waits_for_refreshed_list(self) -> None:
+        client = _make_client()
+        client._connected = True
+        client._send_message = AsyncMock()  # type: ignore[method-assign]
+
+        target = 1_727_914_409_368
+        task = asyncio.create_task(client.kill_client_sessions([target]))
+        await asyncio.sleep(0)
+        msg_type, payload = client._send_message.await_args.args
+        assert msg_type == MsgType.USER_REGISTRATION
+        assert tlv_decode(payload) == [b"\x42", target.to_bytes(8, "big", signed=True)]
+
+        client._handle_user_registration_response(
+            _msg(MsgType.USER_REGISTRATION, tlv_encode([b"\x41"]))
+        )
+        await task
 
 
 # ---------------------------------------------------------------------------
