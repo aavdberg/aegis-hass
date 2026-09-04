@@ -751,6 +751,11 @@ class TestAsyncUpdateData:
         with pytest.raises(ConfigEntryAuthFailed):
             await coordinator._async_update_data()
 
+        with pytest.raises(ConfigEntryAuthFailed):
+            await coordinator._async_update_data()
+        coordinator._client.login.assert_awaited_once()
+        assert coordinator.update_interval == timedelta(minutes=30)
+
     @pytest.mark.asyncio
     async def test_update_data_raises_auth_failed_when_token_rejected_and_relogin_needs_2fa(
         self,
@@ -780,6 +785,11 @@ class TestAsyncUpdateData:
 
         with pytest.raises(ConfigEntryAuthFailed):
             await coordinator._async_update_data()
+
+        with pytest.raises(ConfigEntryAuthFailed):
+            await coordinator._async_update_data()
+        coordinator._client.login.assert_awaited_once()
+        assert coordinator.update_interval == timedelta(minutes=30)
 
     @pytest.mark.asyncio
     async def test_login_persists_session_via_callback(self) -> None:
