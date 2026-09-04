@@ -436,6 +436,7 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._poll_interval = poll_interval
         self.entry_id = entry_id
         self._client = client
+        self._reauth_required = False
         self._on_session_persist = on_session_persist
         self._space_ids = space_ids
         self._spaces_api = SpacesApi(client)
@@ -783,11 +784,14 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         and raise `ConfigEntryAuthFailed` (surfaces the HA "Reconfigure"
         banner) when credentials are no longer accepted.
         """
+        if self._reauth_required:
+            raise ConfigEntryAuthFailed("Two-factor authentication required")
         if self._client.session.is_authenticated:
             return
         try:
             await self._login_and_persist()
         except TwoFactorRequiredError as err:
+            self._reauth_required = True
             self.update_interval = timedelta(minutes=30)
             _LOGGER.error(
                 "Ajax requires a 2FA code to log in again — triggering reauth so the "
@@ -841,6 +845,7 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # typing into the reconfigure form. `ConfigEntryAuthFailed`
                 # stops the polling and opens the reauth flow, which does
                 # know how to ask for the code.
+                self._reauth_required = True
                 raise ConfigEntryAuthFailed("Two-factor authentication required") from tfa_err
             except AuthenticationError as auth_err:
                 raise ConfigEntryAuthFailed(str(auth_err)) from auth_err
