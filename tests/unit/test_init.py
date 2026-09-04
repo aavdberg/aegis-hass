@@ -137,6 +137,78 @@ class TestAsyncSetupEntry:
         assert "password" not in call_kwargs or call_kwargs.get("password") is None
 
     @pytest.mark.asyncio
+    async def test_setup_registers_hub_devices_before_forwarding_platforms(self) -> None:
+        # #444: children link to their hub with `via_device_id`, which HA
+        # rejects unless the hub is already a registered device. Platforms
+        # add entities in no particular order, so the hub is registered here,
+        # before any platform runs. Only hubs are pre-registered; every other
+        # device is created by its own entities as before.
+        from custom_components.aegis_ajax import async_setup_entry
+        from custom_components.aegis_ajax.api.models import Device
+        from custom_components.aegis_ajax.const import DeviceState
+
+        def _device(device_id: str, device_type: str) -> Device:
+            return Device(
+                id=device_id,
+                hub_id="HUB7",
+                name=device_id,
+                device_type=device_type,
+                room_id=None,
+                group_id=None,
+                state=DeviceState.ONLINE,
+                malfunctions=0,
+                bypassed=False,
+                statuses={},
+                battery=None,
+            )
+
+        order: list[str] = []
+        hass = MagicMock()
+        hass.data = {}
+
+        async def _forward(*_args: object, **_kwargs: object) -> bool:
+            order.append("forward")
+            return True
+
+        hass.config_entries.async_forward_entry_setups = _forward
+        entry = MagicMock()
+        entry.entry_id = "entry-hub"
+        entry.data = {"email": "x@y", "password_hash": "h", "spaces": ["s1"]}
+        entry.options = {}
+
+        mock_client = MagicMock()
+        mock_client.connect = AsyncMock()
+        mock_client.session = MagicMock()
+        mock_coordinator = MagicMock()
+        mock_coordinator.async_config_entry_first_refresh = AsyncMock()
+        mock_coordinator.async_start_push_notifications = MagicMock()
+        mock_coordinator.devices = {
+            "HUB7": _device("HUB7", "hub_two_4g"),
+            "DOOR1": _device("DOOR1", "door_protect"),
+        }
+        mock_coordinator.rooms = {}
+        registry = MagicMock()
+        registry.async_get_or_create.side_effect = lambda **_kw: order.append("register")
+
+        with (
+            patch("custom_components.aegis_ajax.AjaxGrpcClient", return_value=mock_client),
+            patch(
+                "custom_components.aegis_ajax.AjaxCobrandedCoordinator",
+                return_value=mock_coordinator,
+            ),
+            patch("custom_components.aegis_ajax.dr.async_get", return_value=registry),
+        ):
+            await async_setup_entry(hass, entry)
+
+        assert order == ["register", "forward"]
+        registry.async_get_or_create.assert_called_once()
+        kwargs = registry.async_get_or_create.call_args.kwargs
+        assert kwargs["config_entry_id"] == "entry-hub"
+        assert kwargs["identifiers"] == {("aegis_ajax", "HUB7")}
+        assert kwargs["name"] == "HUB7"
+        assert "via_device" not in kwargs and "via_device_id" not in kwargs
+
+    @pytest.mark.asyncio
     async def test_setup_entry_closes_client_when_first_refresh_fails(self) -> None:
         """A failed first refresh must close the gRPC channel before propagating.
 

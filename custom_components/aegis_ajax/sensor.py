@@ -270,7 +270,9 @@ class AjaxSensor(CoordinatorEntity[AjaxCobrandedCoordinator], SensorEntity):
         self._attr_entity_registry_enabled_default = self._type_info.entity_registry_enabled_default
         device = coordinator.devices.get(device_id)
         if device:
-            self._attr_device_info = build_device_info(device, coordinator.rooms)
+            self._attr_device_info = build_device_info(
+                device, coordinator.rooms, via_device_id=coordinator.hub_registry_id(device.hub_id)
+            )
 
     @property
     def _device(self) -> Device | None:
@@ -560,7 +562,9 @@ class _AjaxDeviceReadingsBase(CoordinatorEntity[AjaxCobrandedCoordinator], Resto
         self._restored_native_value: float | None = None
         device = coordinator.devices.get(device_id)
         if device:
-            self._attr_device_info = build_device_info(device, coordinator.rooms)
+            self._attr_device_info = build_device_info(
+                device, coordinator.rooms, via_device_id=coordinator.hub_registry_id(device.hub_id)
+            )
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()

@@ -957,8 +957,35 @@ class TestStreamHandlers:
                 hass=hass, client=client, space_ids=["s1"], poll_interval=300
             )
         coordinator.hass = hass
+        coordinator.entry_id = "entry-1"
         coordinator.async_set_updated_data = MagicMock()
         return coordinator
+
+    def test_hub_registry_id_resolves_through_the_scoped_lookup(self) -> None:
+        # #444: children link to the hub by registry id (`via_device_id`), so
+        # entities need the hub's registry entry id at construction time.
+        coordinator = self._make_coordinator_with_stream()
+        device_reg = MagicMock()
+        device_reg.async_get_device_by_identifier.return_value = MagicMock(id="reg-hub")
+
+        with patch(
+            "custom_components.aegis_ajax.coordinator.dr.async_get", return_value=device_reg
+        ):
+            assert coordinator.hub_registry_id("HUB7") == "reg-hub"
+
+        device_reg.async_get_device_by_identifier.assert_called_once_with(
+            ("aegis_ajax", "HUB7"), "entry-1"
+        )
+
+    def test_hub_registry_id_is_none_when_hub_not_registered(self) -> None:
+        coordinator = self._make_coordinator_with_stream()
+        device_reg = MagicMock()
+        device_reg.async_get_device_by_identifier.return_value = None
+
+        with patch(
+            "custom_components.aegis_ajax.coordinator.dr.async_get", return_value=device_reg
+        ):
+            assert coordinator.hub_registry_id("HUB7") is None
 
     def test_handle_devices_snapshot_populates_devices(self) -> None:
         coordinator = self._make_coordinator_with_stream()
@@ -1254,7 +1281,7 @@ class TestStreamHandlers:
         reg_device = MagicMock()
         reg_device.id = "reg-ghost"
         device_reg = MagicMock()
-        device_reg.async_get_device.return_value = reg_device
+        device_reg.async_get_device_by_identifier.return_value = reg_device
 
         sibling = self._make_doorbell("9c756e2bca39-0", "video_edge_doorbell")
         with patch(
@@ -1265,6 +1292,12 @@ class TestStreamHandlers:
         assert "310A8DF4" not in coordinator.devices
         assert "9c756e2bca39-0" in coordinator.devices
         device_reg.async_remove_device.assert_called_once_with("reg-ghost")
+        # #444: the lookup is scoped to our config entry, never the deprecated
+        # cross-entry `async_get_device(identifiers=...)`.
+        device_reg.async_get_device_by_identifier.assert_called_once_with(
+            ("aegis_ajax", "310A8DF4"), "entry-1"
+        )
+        device_reg.async_get_device.assert_not_called()
 
     def test_snapshot_keeps_ghost_when_no_sibling(self) -> None:
         """Unbalanced #119 case: only the hub_device twin exists — keep it."""
@@ -1283,7 +1316,7 @@ class TestStreamHandlers:
             "310A8DF4", "motion_cam_video_doorbell"
         )
         device_reg = MagicMock()
-        device_reg.async_get_device.return_value = None
+        device_reg.async_get_device_by_identifier.return_value = None
 
         sibling = self._make_doorbell("9c756e2bca39-0", "video_edge_doorbell")
         with patch(
@@ -1306,7 +1339,7 @@ class TestStreamHandlers:
         reg_device = MagicMock()
         reg_device.id = "reg-d1"
         device_reg = MagicMock()
-        device_reg.async_get_device.return_value = reg_device
+        device_reg.async_get_device_by_identifier.return_value = reg_device
 
         with patch(
             "custom_components.aegis_ajax.coordinator.dr.async_get", return_value=device_reg
@@ -1325,7 +1358,7 @@ class TestStreamHandlers:
         coordinator = self._make_coordinator_with_stream()
         coordinator._devices_cache = MagicMock()
         device_reg = MagicMock()
-        device_reg.async_get_device.return_value = None
+        device_reg.async_get_device_by_identifier.return_value = None
 
         with patch(
             "custom_components.aegis_ajax.coordinator.dr.async_get", return_value=device_reg

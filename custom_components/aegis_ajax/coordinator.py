@@ -63,6 +63,7 @@ from custom_components.aegis_ajax.const import (
     ConnectionStatus,
 )
 from custom_components.aegis_ajax.device_cache import DevicesCache
+from custom_components.aegis_ajax.entity import async_get_registered_device
 from custom_components.aegis_ajax.repairs import (
     async_clear_hts_chronic_failure,
     async_clear_hub_offline,
@@ -433,6 +434,7 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             hass, _LOGGER, name=DOMAIN, update_interval=timedelta(seconds=poll_interval)
         )
         self._poll_interval = poll_interval
+        self.entry_id = entry_id
         self._client = client
         self._on_session_persist = on_session_persist
         self._space_ids = space_ids
@@ -2744,7 +2746,7 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.devices = {d.id: d for d in deduped}
         device_reg = dr.async_get(self.hass)
         for ghost in dropped:
-            reg_device = device_reg.async_get_device(identifiers={(DOMAIN, ghost.id)})
+            reg_device = async_get_registered_device(device_reg, (DOMAIN, ghost.id), self.entry_id)
             if reg_device is not None:
                 _LOGGER.info(
                     "Removing duplicate video-doorbell ghost %s (%s) from the "
@@ -2753,6 +2755,18 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     ghost.device_type,
                 )
                 device_reg.async_remove_device(reg_device.id)
+
+    def hub_registry_id(self, hub_id: str) -> str | None:
+        """The hub's device-registry entry id, for children's `via_device_id` (#444).
+
+        None when the hub has no registry entry yet (a hub that appeared after
+        setup); the child is then created without the link rather than
+        rejected, and gets it on the next reload.
+        """
+        entry = async_get_registered_device(
+            dr.async_get(self.hass), (DOMAIN, hub_id), self.entry_id
+        )
+        return entry.id if entry is not None else None
 
     def _handle_device_removed(self, device_id: str) -> None:
         """Handle the stream's explicit device REMOVE (#422).
@@ -2768,7 +2782,7 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         device = self.devices.pop(device_id, None)
         self._hts_carried_deactivation_ids.discard(device_id)
         device_reg = dr.async_get(self.hass)
-        reg_device = device_reg.async_get_device(identifiers={(DOMAIN, device_id)})
+        reg_device = async_get_registered_device(device_reg, (DOMAIN, device_id), self.entry_id)
         if reg_device is not None:
             device_reg.async_remove_device(reg_device.id)
         if device is None and reg_device is None:

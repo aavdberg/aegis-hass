@@ -226,15 +226,32 @@ class TestAjaxBinarySensor:
         sensor = AjaxBinarySensor(coordinator=coordinator, device_id="dev-1", status_key="tamper")
         assert sensor.is_on is True
 
-    def test_non_hub_device_has_via_device(self) -> None:
+    def test_non_hub_device_has_via_device_on_old_ha(self) -> None:
         device = self._make_device({})
         coordinator = MagicMock()
         coordinator.devices = {"dev-1": device}
-        sensor = AjaxBinarySensor(
-            coordinator=coordinator, device_id="dev-1", status_key="door_opened"
-        )
+        with patch("custom_components.aegis_ajax.entity._VIA_DEVICE_ID_SUPPORTED", False):
+            sensor = AjaxBinarySensor(
+                coordinator=coordinator, device_id="dev-1", status_key="door_opened"
+            )
         assert sensor._attr_device_info is not None
         assert sensor._attr_device_info.get("via_device") == ("aegis_ajax", "hub-1")
+
+    def test_non_hub_device_links_by_registry_id_on_new_ha(self) -> None:
+        # #444: on HA 2026.8+ the link is the hub's registry entry id, which
+        # the entity asks the coordinator for at construction time.
+        device = self._make_device({})
+        coordinator = MagicMock()
+        coordinator.devices = {"dev-1": device}
+        coordinator.hub_registry_id.return_value = "reg-hub-1"
+        with patch("custom_components.aegis_ajax.entity._VIA_DEVICE_ID_SUPPORTED", True):
+            sensor = AjaxBinarySensor(
+                coordinator=coordinator, device_id="dev-1", status_key="door_opened"
+            )
+        assert sensor._attr_device_info is not None
+        assert sensor._attr_device_info.get("via_device_id") == "reg-hub-1"
+        assert "via_device" not in sensor._attr_device_info
+        coordinator.hub_registry_id.assert_called_once_with("hub-1")
 
     def test_motion_sensor_extra_attributes_with_timestamp(self) -> None:
         device = self._make_device({"motion_detected": True, "motion_detected_at": 1700000000})
@@ -1366,8 +1383,31 @@ class TestKeyfobActiveSensor:
         # itself is named after the keyfob.
         assert sensor.name == "ALICE"
         assert sensor.device_info["identifiers"] == {("aegis_ajax", "002B1A51_keyfobs")}
-        assert sensor.device_info["via_device"] == ("aegis_ajax", "002B1A51")
         assert sensor.device_info["name"] == "Keyfobs"
+
+    def test_keyfob_device_links_to_hub_by_registry_id_on_new_ha(self) -> None:
+        # #444: the virtual Keyfobs device builds its own DeviceInfo and must
+        # follow the same via_device → via_device_id migration as the rest.
+        from custom_components.aegis_ajax.binary_sensor import AjaxKeyfobActiveSensor
+
+        coordinator = MagicMock()
+        coordinator.keyfobs = {"2ACCB91C": self._keyfob()}
+        coordinator.hub_registry_id.return_value = "reg-hub"
+        with patch("custom_components.aegis_ajax.entity._VIA_DEVICE_ID_SUPPORTED", True):
+            sensor = AjaxKeyfobActiveSensor(coordinator, "2ACCB91C")
+        assert sensor.device_info["via_device_id"] == "reg-hub"
+        assert "via_device" not in sensor.device_info
+        coordinator.hub_registry_id.assert_called_once_with("002B1A51")
+
+    def test_keyfob_device_keeps_identifier_link_on_old_ha(self) -> None:
+        from custom_components.aegis_ajax.binary_sensor import AjaxKeyfobActiveSensor
+
+        coordinator = MagicMock()
+        coordinator.keyfobs = {"2ACCB91C": self._keyfob()}
+        with patch("custom_components.aegis_ajax.entity._VIA_DEVICE_ID_SUPPORTED", False):
+            sensor = AjaxKeyfobActiveSensor(coordinator, "2ACCB91C")
+        assert sensor.device_info["via_device"] == ("aegis_ajax", "002B1A51")
+        assert "via_device_id" not in sensor.device_info
 
     def test_unavailable_when_keyfob_gone(self) -> None:
         from custom_components.aegis_ajax.binary_sensor import AjaxKeyfobActiveSensor

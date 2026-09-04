@@ -333,7 +333,10 @@ class TestAjaxSensor:
         device = self._make_device({"temperature": 22.5})
         coordinator = MagicMock()
         coordinator.devices = {"dev-1": device}
-        sensor = AjaxSensor(coordinator=coordinator, device_id="dev-1", sensor_key="temperature")
+        with patch("custom_components.aegis_ajax.entity._VIA_DEVICE_ID_SUPPORTED", False):
+            sensor = AjaxSensor(
+                coordinator=coordinator, device_id="dev-1", sensor_key="temperature"
+            )
         assert sensor._attr_device_info is not None
         assert sensor._attr_device_info.get("via_device") == ("aegis_ajax", "hub-1")
 

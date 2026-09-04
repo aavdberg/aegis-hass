@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
+from homeassistant.core import callback
+from homeassistant.helpers import device_registry as dr
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -77,6 +79,7 @@ from custom_components.aegis_ajax.const import (  # noqa: E402
     LABELS,
 )
 from custom_components.aegis_ajax.coordinator import AjaxCobrandedCoordinator  # noqa: E402
+from custom_components.aegis_ajax.entity import build_device_info, is_hub_device  # noqa: E402
 from custom_components.aegis_ajax.repairs import async_check_grpcio_version  # noqa: E402
 
 if TYPE_CHECKING:
@@ -485,6 +488,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AjaxCobrandedConfigEntry
     hass.async_create_task(_photo_cleanup())
     entry.async_on_unload(unsub_cleanup)
 
+    _async_register_hub_devices(hass, entry, coordinator)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Auto-label entities for easy grouping in automations.
@@ -571,6 +575,27 @@ _ENTITY_ID_LABELS: dict[str, str] = {
     "_cra": "aegis_hub",
     "_conexion_cra": "aegis_hub",
 }
+
+
+@callback
+def _async_register_hub_devices(
+    hass: HomeAssistant, entry: ConfigEntry, coordinator: AjaxCobrandedCoordinator
+) -> None:
+    """Register every hub in the device registry before any platform runs (#444).
+
+    Children link to their hub with `via_device_id`, the hub's registry entry
+    id, and HA rejects a `DeviceInfo` whose via device is not registered yet.
+    Platforms add entities in no guaranteed order, so the hubs go in first;
+    the same identifiers make the hub entities' own `DeviceInfo` an update of
+    this entry, not a duplicate. Non-hub devices are created by their entities
+    as before.
+    """
+    registry = dr.async_get(hass)
+    for device in coordinator.devices.values():
+        if is_hub_device(device):
+            registry.async_get_or_create(
+                config_entry_id=entry.entry_id, **build_device_info(device, coordinator.rooms)
+            )
 
 
 async def _async_apply_labels(hass: HomeAssistant, entry: ConfigEntry) -> None:

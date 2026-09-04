@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.device_registry import DeviceEntry, DeviceInfo, DeviceRegistry
 
 from custom_components.aegis_ajax.const import (
     COMMAND_ERROR_TRANSLATION_KEYS,
@@ -20,6 +20,51 @@ if TYPE_CHECKING:
     from custom_components.aegis_ajax.coordinator import AjaxCobrandedCoordinator
 
 
+# HA 2026.8 added `via_device_id` to `DeviceInfo` and, in the same release,
+# `DeviceRegistry.async_get_device_by_identifier`; 2026.9 deprecates the
+# identifier-tuple `via_device` and the cross-entry `async_get_device`, and
+# 2027.8 removes both (#444). Older cores reject the new key with a TypeError
+# deep inside `async_get_or_create`, so the key the running core understands is
+# detected once here and every via link goes through `via_device_fields`.
+_VIA_DEVICE_ID_SUPPORTED = "via_device_id" in (
+    DeviceInfo.__required_keys__ | DeviceInfo.__optional_keys__
+)
+
+
+def is_hub_device(device: Device) -> bool:
+    """Whether an Ajax device row is a hub (the root of its device tree)."""
+    return device.device_type.startswith("hub")
+
+
+def via_device_fields(hub_id: str, hub_registry_id: str | None) -> dict[str, Any]:
+    """The `DeviceInfo` fields linking a child device to its hub.
+
+    On HA 2026.8+ the link is the hub's device-registry entry id; when the hub
+    is not registered yet there is nothing valid to pass — HA rejects an
+    unknown `via_device_id` together with the entity — so the link is simply
+    omitted. Older cores get the identifier tuple they understand.
+    """
+    if not _VIA_DEVICE_ID_SUPPORTED:
+        return {"via_device": (DOMAIN, hub_id)}
+    if hub_registry_id is None:
+        return {}
+    return {"via_device_id": hub_registry_id}
+
+
+def async_get_registered_device(
+    registry: DeviceRegistry, identifier: tuple[str, str], config_entry_id: str
+) -> DeviceEntry | None:
+    """Look a device up by identifier, scoped to our config entry (#444).
+
+    Falls back to the pre-2026.8 cross-entry lookup where the scoped one does
+    not exist yet.
+    """
+    lookup = getattr(registry, "async_get_device_by_identifier", None)
+    if lookup is not None:
+        return lookup(identifier, config_entry_id)  # type: ignore[no-any-return]
+    return registry.async_get_device(identifiers={identifier})
+
+
 # device_type → model display overrides for names `.title()` mangles
 # (acronyms). Everything else keeps the generic title-cased fallback.
 _MODEL_OVERRIDES: dict[str, str] = {
@@ -32,6 +77,7 @@ def build_device_info(
     rooms: Mapping[str, Room] | None = None,
     *,
     firmware_version: str | None = None,
+    via_device_id: str | None = None,
 ) -> DeviceInfo:
     """Build a HA DeviceInfo for an Ajax device.
 
@@ -39,9 +85,11 @@ def build_device_info(
     shown in the Ajax app) and `suggested_area` from the device's Ajax room
     when available, so HA can auto-assign devices to matching areas.
     `firmware_version` is keyword-only so call sites stay explicit about
-    populating `sw_version` (#388).
+    populating `sw_version` (#388). `via_device_id` is the hub's registry
+    entry id (`coordinator.hub_registry_id`), used for the child→hub link on
+    HA 2026.8+ and ignored for hubs themselves (#444).
     """
-    is_hub = device.device_type.startswith("hub")
+    is_hub = is_hub_device(device)
     info = DeviceInfo(
         identifiers={(DOMAIN, device.id)},
         name=device.name,
@@ -52,7 +100,7 @@ def build_device_info(
         serial_number=device.id,
     )
     if not is_hub:
-        info["via_device"] = (DOMAIN, device.hub_id)
+        info.update(cast("DeviceInfo", via_device_fields(device.hub_id, via_device_id)))
     if rooms and device.room_id:
         room = rooms.get(device.room_id) if isinstance(rooms, dict) else None
         if room is not None:
