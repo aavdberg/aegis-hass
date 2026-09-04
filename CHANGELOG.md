@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.18.0-beta.4] - 2026-09-04
 
 ### Fixed
 - **A valid 2FA code is no longer rejected during re-authentication (#448).** When the Ajax session Home Assistant uses is revoked externally, the integration opens the re-authentication flow — but the old coordinator kept making its own login attempts in the background, and each one made Ajax issue a fresh two-factor challenge, invalidating the code the user was typing until Home Assistant was restarted. The coordinator now latches into the re-authentication state at the first challenge and makes no further login requests until the flow completes and reloads it. Found, diagnosed and fixed by @aavdberg. No additional requests to Ajax: it removes requests.
