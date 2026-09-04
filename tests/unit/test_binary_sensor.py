@@ -93,6 +93,45 @@ class TestBinarySensorTypes:
             == BinarySensorDeviceClass.OPENING
         )
 
+    def test_delay_when_leaving_is_a_disabled_diagnostic_flag(self) -> None:
+        # #443: a read-only mirror of the detector's "Delay when leaving"
+        # setting. No device class fits a configuration flag; diagnostic and
+        # off by default like the hub siren settings (#438).
+        from homeassistant.const import EntityCategory
+
+        info = BINARY_SENSOR_TYPES["delay_when_leaving"]
+        assert info.device_class is None
+        assert info.translation_key == "delay_when_leaving"
+        assert info.entity_category == EntityCategory.DIAGNOSTIC
+        assert info.enabled_default is False
+
+    def test_delay_when_leaving_goes_to_arming_capable_families_only(self) -> None:
+        # Families whose device model carries an arming part (door/motion/
+        # combi detectors and MotionCams); keypads, sirens, fire detectors,
+        # wire inputs and hubs have no leaving delay to mirror.
+        from custom_components.aegis_ajax.binary_sensor import _sensor_keys_for
+
+        for dtype in (
+            "door_protect",
+            "door_protect_plus",
+            "motion_protect",
+            "motion_protect_curtain_outdoor_plus",
+            "dual_curtain_outdoor",
+            "motion_cam_phod",
+            "combi_protect",
+        ):
+            assert "delay_when_leaving" in _sensor_keys_for(dtype), dtype
+        for dtype in (
+            "keypad_combi",
+            "street_siren",
+            "fire_protect_two",
+            "wire_input_mt",
+            "hub_two_4g",
+            "glass_protect",
+            "unknown_family",
+        ):
+            assert "delay_when_leaving" not in _sensor_keys_for(dtype), dtype
+
     def test_wire_input_mt_gets_the_contact_sensor(self) -> None:
         # Only the capture-validated family (#413); plain wire_input and
         # transmitter key the same concept on different sub-keys.
@@ -225,6 +264,24 @@ class TestAjaxBinarySensor:
         coordinator.devices = {"dev-1": device}
         sensor = AjaxBinarySensor(coordinator=coordinator, device_id="dev-1", status_key="tamper")
         assert sensor.is_on is True
+
+    def test_delay_when_leaving_reflects_the_status_flag(self) -> None:
+        # #443 — presence-only status: the key exists when the setting is on
+        # and is absent otherwise (statuses are rebuilt from every snapshot).
+        from homeassistant.const import EntityCategory
+
+        coordinator = MagicMock()
+        coordinator.devices = {"dev-1": self._make_device({"delay_when_leaving": True})}
+        sensor = AjaxBinarySensor(
+            coordinator=coordinator, device_id="dev-1", status_key="delay_when_leaving"
+        )
+        assert sensor.is_on is True
+        assert sensor.entity_category == EntityCategory.DIAGNOSTIC
+        assert sensor.entity_registry_enabled_default is False
+        assert sensor.device_class is None
+
+        coordinator.devices = {"dev-1": self._make_device({})}
+        assert sensor.is_on is False
 
     def test_non_hub_device_has_via_device_on_old_ha(self) -> None:
         device = self._make_device({})

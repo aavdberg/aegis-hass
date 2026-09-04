@@ -27,7 +27,8 @@
             "connectivity": { "default": "mdi:wifi", "state": { "on": "mdi:wifi", "off": "mdi:wifi-off" } },
             "problem": { "default": "mdi:alert-circle-outline", "state": { "on": "mdi:alert-circle", "off": "mdi:check-circle-outline" } },
             "glass_break": { "default": "mdi:window-closed-variant", "state": { "on": "mdi:window-shutter-alert", "off": "mdi:window-closed-variant" } },
-            "vibration": { "default": "mdi:vibrate-off", "state": { "on": "mdi:vibrate", "off": "mdi:vibrate-off" } }
+            "vibration": { "default": "mdi:vibrate-off", "state": { "on": "mdi:vibrate", "off": "mdi:vibrate-off" } },
+            "delay_when_leaving": { "default": "mdi:timer-outline", "state": { "on": "mdi:timer-outline", "off": "mdi:timer-off-outline" } }
         },
         "sensor": {
             "signal_strength": { "default": "mdi:signal" },

@@ -375,6 +375,9 @@
             "external_contact_open": {
                 "name": "Kontak"
             },
+            "delay_when_leaving": {
+              "name": "Çıkışta gecikme"
+            },
             "siren_on_panic_button": {
                 "name": "Panik düğmesinde siren"
             },

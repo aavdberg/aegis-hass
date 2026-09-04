@@ -375,6 +375,9 @@
             "external_contact_open": {
                 "name": "Styk"
             },
+            "delay_when_leaving": {
+              "name": "Opóźnienie przy wyjściu"
+            },
             "siren_on_panic_button": {
                 "name": "Syrena przy przycisku napadowym"
             },

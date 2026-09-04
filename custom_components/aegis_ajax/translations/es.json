@@ -391,6 +391,9 @@
             "external_contact_open": {
                 "name": "Contacto"
             },
+            "delay_when_leaving": {
+              "name": "Retardo al salir"
+            },
             "siren_on_panic_button": {
                 "name": "Sirena ante botón de pánico"
             },
