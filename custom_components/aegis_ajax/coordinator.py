@@ -785,6 +785,7 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         banner) when credentials are no longer accepted.
         """
         if self._reauth_required:
+            self.update_interval = timedelta(minutes=30)
             raise ConfigEntryAuthFailed("Two-factor authentication required")
         if self._client.session.is_authenticated:
             return
