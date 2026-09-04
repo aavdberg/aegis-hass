@@ -128,6 +128,7 @@ class TestServiceRegistration:
         mock_coordinator.async_start_push_notifications = AsyncMock()
 
         with (
+            patch("custom_components.aegis_ajax.dr.async_get", return_value=MagicMock()),
             patch(
                 "custom_components.aegis_ajax.AjaxGrpcClient",
                 return_value=mock_client,
