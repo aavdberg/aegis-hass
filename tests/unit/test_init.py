@@ -2,9 +2,28 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+
+@pytest.fixture(autouse=True)
+def _device_registry_for_bare_hass() -> Iterator[None]:
+    """Give `async_setup_entry` a device registry to pre-register hubs into (#444).
+
+    These tests drive setup with a bare `MagicMock` hass whose `data` is an
+    empty dict. Since HA 2026.8 `device_registry.async_get` raises
+    `RuntimeError("Device registry not set up")` in that situation instead of
+    lazily creating one, so without this every setup test breaks on a current
+    core (aavdberg saw 12 failures on #447/#449). A test that needs a specific
+    registry patches `dr.async_get` itself; the inner patch wins.
+    """
+    with patch("custom_components.aegis_ajax.dr.async_get", return_value=MagicMock()):
+        yield
 
 
 class TestAsyncSetupEntry:

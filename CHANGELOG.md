@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **A valid 2FA code is no longer rejected during re-authentication (#448).** When the Ajax session Home Assistant uses is revoked externally, the integration opens the re-authentication flow — but the old coordinator kept making its own login attempts in the background, and each one made Ajax issue a fresh two-factor challenge, invalidating the code the user was typing until Home Assistant was restarted. The coordinator now latches into the re-authentication state at the first challenge and makes no further login requests until the flow completes and reloads it. Found, diagnosed and fixed by @aavdberg. No additional requests to Ajax: it removes requests.
+- **A push registration saved without a token is repaired instead of reused (#450).** An interrupted Firebase registration could be persisted with no token; on every later start the integration treated that cache as valid, connected the push client and heartbeated happily while it had nothing to register with Ajax — the exact "connected but never delivers" shape #437 describes, from a different cause. Such a cache is now treated as absent and the registration is run again. The four push credential fields also have surrounding whitespace stripped when pasted into the options form. Found, diagnosed and fixed by @aavdberg. No additional requests to Ajax.
+
+### Changed
+- **Setup tests no longer depend on a lazily created device registry.** Home Assistant 2026.8 stopped creating the device registry on first access, so the hub pre-registration added for #444 made every setup test that drives the integration with a bare mock fail on a current core. Test scaffolding only; no runtime change.
+
 ## [1.18.0-beta.3] - 2026-09-04
 
 ### Added
