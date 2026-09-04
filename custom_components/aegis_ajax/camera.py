@@ -72,7 +72,9 @@ class AjaxCamera(CoordinatorEntity[AjaxCobrandedCoordinator], Camera):
         self._last_image: bytes | None = None
         device = coordinator.devices.get(device_id)
         if device:
-            self._attr_device_info = build_device_info(device, coordinator.rooms)
+            self._attr_device_info = build_device_info(
+                device, coordinator.rooms, via_device_id=coordinator.hub_registry_id(device.hub_id)
+            )
 
     @property
     def _device(self) -> Device | None:

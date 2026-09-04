@@ -148,7 +148,9 @@ class TestAjaxHubFirmwareUpdate:
         HA instance.
         """
         registry = MagicMock()
-        registry.async_get_device.return_value = MagicMock(id="reg-1", sw_version=sw_version)
+        registry.async_get_device_by_identifier.return_value = MagicMock(
+            id="reg-1", sw_version=sw_version
+        )
         entity.hass = MagicMock()
         return registry
 
@@ -171,6 +173,11 @@ class TestAjaxHubFirmwareUpdate:
             entity._async_write_sw_version()
 
         registry.async_update_device.assert_called_once_with("reg-1", sw_version="2.41.116")
+        # #444: config-entry-scoped lookup, not the deprecated cross-entry one.
+        registry.async_get_device_by_identifier.assert_called_once_with(
+            ("aegis_ajax", "002B1A51"), coordinator.entry_id
+        )
+        registry.async_get_device.assert_not_called()
 
     def test_registry_is_not_written_when_version_is_unchanged(self) -> None:
         # HTS pushes hub status rows continuously; rewriting an identical
@@ -204,7 +211,7 @@ class TestAjaxHubFirmwareUpdate:
         coordinator = self._make_coordinator(None, firmware_version="2.41.116")
         entity = AjaxHubFirmwareUpdate(coordinator, "002B1A51")
         registry = MagicMock()
-        registry.async_get_device.return_value = None
+        registry.async_get_device_by_identifier.return_value = None
         entity.hass = MagicMock()
 
         with patch("custom_components.aegis_ajax.update.dr.async_get", return_value=registry):

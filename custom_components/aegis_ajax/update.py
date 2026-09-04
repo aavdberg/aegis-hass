@@ -41,7 +41,10 @@ from custom_components.aegis_ajax.api.hub_object import (
 )
 from custom_components.aegis_ajax.const import DOMAIN
 from custom_components.aegis_ajax.coordinator import AjaxCobrandedCoordinator
-from custom_components.aegis_ajax.entity import build_device_info
+from custom_components.aegis_ajax.entity import (
+    async_get_registered_device,
+    build_device_info,
+)
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -146,7 +149,9 @@ class AjaxHubFirmwareUpdate(CoordinatorEntity[AjaxCobrandedCoordinator], UpdateE
         if not version:
             return
         registry = dr.async_get(self.hass)
-        entry = registry.async_get_device(identifiers={(DOMAIN, self._hub_id)})
+        entry = async_get_registered_device(
+            registry, (DOMAIN, self._hub_id), self.coordinator.entry_id
+        )
         # Guard on equality so a steady stream of HTS updates doesn't write
         # to (and re-save) the registry on every coordinator tick.
         if entry is None or entry.sw_version == version:
@@ -257,7 +262,9 @@ class AjaxDeviceFirmwareUpdate(CoordinatorEntity[AjaxCobrandedCoordinator], Upda
         self._attr_unique_id = f"aegis_ajax_{device_id}_firmware"
         device = coordinator.devices.get(device_id)
         if device:
-            self._attr_device_info = build_device_info(device, coordinator.rooms)
+            self._attr_device_info = build_device_info(
+                device, coordinator.rooms, via_device_id=coordinator.hub_registry_id(device.hub_id)
+            )
 
     @property
     def available(self) -> bool:

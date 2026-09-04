@@ -106,7 +106,9 @@ class AjaxCapturePhotoButton(CoordinatorEntity[AjaxCobrandedCoordinator], Button
         self._attr_unique_id = f"aegis_ajax_{device_id}_capture_photo"
         device = coordinator.devices.get(device_id)
         if device:
-            self._attr_device_info = build_device_info(device, coordinator.rooms)
+            self._attr_device_info = build_device_info(
+                device, coordinator.rooms, via_device_id=coordinator.hub_registry_id(device.hub_id)
+            )
 
     async def async_press(self) -> None:
         """Trigger photo capture, retrieve the URL, download and save it.

@@ -74,7 +74,9 @@ class AjaxLock(CoordinatorEntity[AjaxCobrandedCoordinator], LockEntity):
         self._attr_unique_id = f"aegis_ajax_{device_id}_lock"
         device = coordinator.devices.get(device_id)
         if device:
-            self._attr_device_info = build_device_info(device, coordinator.rooms)
+            self._attr_device_info = build_device_info(
+                device, coordinator.rooms, via_device_id=coordinator.hub_registry_id(device.hub_id)
+            )
 
     @property
     def _device(self) -> Device | None:

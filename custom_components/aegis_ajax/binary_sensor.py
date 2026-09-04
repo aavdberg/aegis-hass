@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
 from homeassistant.const import EntityCategory
@@ -16,7 +16,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from custom_components.aegis_ajax.const import DOMAIN, MANUFACTURER, SIGNAL_NEW_DEVICE
 from custom_components.aegis_ajax.coordinator import AjaxCobrandedCoordinator
-from custom_components.aegis_ajax.entity import build_device_info
+from custom_components.aegis_ajax.entity import build_device_info, via_device_fields
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -505,7 +505,9 @@ class AjaxBinarySensor(CoordinatorEntity[AjaxCobrandedCoordinator], BinarySensor
         self._attr_translation_key = self._type_info.translation_key
         device = coordinator.devices.get(device_id)
         if device:
-            self._attr_device_info = build_device_info(device, coordinator.rooms)
+            self._attr_device_info = build_device_info(
+                device, coordinator.rooms, via_device_id=coordinator.hub_registry_id(device.hub_id)
+            )
 
     @property
     def _device(self) -> Device | None:
@@ -565,7 +567,9 @@ class AjaxConnectivitySensor(CoordinatorEntity[AjaxCobrandedCoordinator], Binary
         self._attr_unique_id = f"aegis_ajax_{device_id}_connectivity"
         device = coordinator.devices.get(device_id)
         if device:
-            self._attr_device_info = build_device_info(device, coordinator.rooms)
+            self._attr_device_info = build_device_info(
+                device, coordinator.rooms, via_device_id=coordinator.hub_registry_id(device.hub_id)
+            )
 
     @property
     def is_on(self) -> bool:
@@ -588,7 +592,9 @@ class AjaxProblemSensor(CoordinatorEntity[AjaxCobrandedCoordinator], BinarySenso
         self._attr_unique_id = f"aegis_ajax_{device_id}_problem"
         device = coordinator.devices.get(device_id)
         if device:
-            self._attr_device_info = build_device_info(device, coordinator.rooms)
+            self._attr_device_info = build_device_info(
+                device, coordinator.rooms, via_device_id=coordinator.hub_registry_id(device.hub_id)
+            )
 
     @property
     def available(self) -> bool:
@@ -633,13 +639,19 @@ class AjaxKeyfobActiveSensor(CoordinatorEntity[AjaxCobrandedCoordinator], Binary
             # The entity's own name is the keyfob name; with has_entity_name the
             # device page lists it (e.g. "Front fob") under the "Keyfobs" device.
             self._attr_name = keyfob.name
-            self._attr_device_info = DeviceInfo(
+            info = DeviceInfo(
                 identifiers={(DOMAIN, f"{keyfob.hub_id}_keyfobs")},
                 name="Keyfobs",
                 manufacturer=MANUFACTURER,
                 model="SpaceControl keyfobs (experimental)",
-                via_device=(DOMAIN, keyfob.hub_id),
             )
+            info.update(
+                cast(
+                    "DeviceInfo",
+                    via_device_fields(keyfob.hub_id, coordinator.hub_registry_id(keyfob.hub_id)),
+                )
+            )
+            self._attr_device_info = info
 
     @property
     def available(self) -> bool:

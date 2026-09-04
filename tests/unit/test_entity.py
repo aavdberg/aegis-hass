@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 from custom_components.aegis_ajax.api.models import Device, Room
 from custom_components.aegis_ajax.const import DOMAIN, DeviceState
-from custom_components.aegis_ajax.entity import build_device_info
+from custom_components.aegis_ajax.entity import (
+    async_get_registered_device,
+    build_device_info,
+    via_device_fields,
+)
 
 
 def _make_device(
@@ -38,13 +44,45 @@ class TestBuildDeviceInfo:
         info = build_device_info(_make_device(device_id="DEV42"))
         assert (DOMAIN, "DEV42") in info["identifiers"]
 
-    def test_non_hub_device_has_via_device(self) -> None:
-        info = build_device_info(_make_device(device_type="door_protect", hub_id="HUB7"))
-        assert info["via_device"] == (DOMAIN, "HUB7")
-
-    def test_hub_device_has_no_via_device(self) -> None:
-        info = build_device_info(_make_device(device_type="hub_two_4g", device_id="HUB7"))
+    def test_non_hub_device_links_to_hub_by_registry_id_on_new_ha(self) -> None:
+        # HA 2026.8+ (#444): `via_device` is deprecated and removed in 2027.8;
+        # the replacement `via_device_id` takes the hub's registry entry id.
+        with patch("custom_components.aegis_ajax.entity._VIA_DEVICE_ID_SUPPORTED", True):
+            info = build_device_info(
+                _make_device(device_type="door_protect", hub_id="HUB7"), via_device_id="reg-hub7"
+            )
+        assert info["via_device_id"] == "reg-hub7"
         assert "via_device" not in info
+
+    def test_link_is_omitted_when_hub_not_yet_registered_on_new_ha(self) -> None:
+        # A `via_device_id` that is not a registered device id makes HA reject
+        # the whole DeviceInfo (and the entity with it), so no id → no link.
+        with patch("custom_components.aegis_ajax.entity._VIA_DEVICE_ID_SUPPORTED", True):
+            info = build_device_info(
+                _make_device(device_type="door_protect", hub_id="HUB7"), via_device_id=None
+            )
+        assert "via_device_id" not in info
+        assert "via_device" not in info
+
+    def test_non_hub_device_keeps_identifier_link_on_old_ha(self) -> None:
+        # Before 2026.8 `DeviceInfo` has no `via_device_id` key and passing one
+        # is a TypeError inside HA, so the identifier tuple stays in use there.
+        with patch("custom_components.aegis_ajax.entity._VIA_DEVICE_ID_SUPPORTED", False):
+            info = build_device_info(
+                _make_device(device_type="door_protect", hub_id="HUB7"), via_device_id="reg-hub7"
+            )
+        assert info["via_device"] == (DOMAIN, "HUB7")
+        assert "via_device_id" not in info
+
+    def test_hub_device_has_no_via_link(self) -> None:
+        for supported in (True, False):
+            with patch("custom_components.aegis_ajax.entity._VIA_DEVICE_ID_SUPPORTED", supported):
+                info = build_device_info(
+                    _make_device(device_type="hub_two_4g", device_id="HUB7"),
+                    via_device_id="reg-hub7",
+                )
+            assert "via_device" not in info
+            assert "via_device_id" not in info
 
     def test_suggested_area_set_from_room(self) -> None:
         rooms = {"r1": Room(id="r1", name="Kitchen", space_id="s1")}
@@ -151,3 +189,41 @@ class TestAsyncSendDeviceCommand:
 
         assert exc.value.translation_key == "command_failed"
         assert exc.value.translation_placeholders == {"reason": "weird_new_code"}
+
+
+class TestViaDeviceFields:
+    """The keyfob device builds its own DeviceInfo; it shares the via logic."""
+
+    def test_new_ha_uses_registry_id(self) -> None:
+        with patch("custom_components.aegis_ajax.entity._VIA_DEVICE_ID_SUPPORTED", True):
+            assert via_device_fields("HUB7", "reg-hub7") == {"via_device_id": "reg-hub7"}
+            assert via_device_fields("HUB7", None) == {}
+
+    def test_old_ha_uses_identifier_tuple(self) -> None:
+        with patch("custom_components.aegis_ajax.entity._VIA_DEVICE_ID_SUPPORTED", False):
+            assert via_device_fields("HUB7", "reg-hub7") == {"via_device": (DOMAIN, "HUB7")}
+            assert via_device_fields("HUB7", None) == {"via_device": (DOMAIN, "HUB7")}
+
+
+class TestAsyncGetRegisteredDevice:
+    """`async_get_device(identifiers=...)` is deprecated in 2026.9 and removed
+    in 2027.8 (#444); the replacement is scoped to the config entry."""
+
+    def test_prefers_the_config_entry_scoped_lookup(self) -> None:
+        registry = MagicMock()
+        registry.async_get_device_by_identifier.return_value = "entry"
+
+        found = async_get_registered_device(registry, (DOMAIN, "HUB7"), "cfg-1")
+
+        assert found == "entry"
+        registry.async_get_device_by_identifier.assert_called_once_with((DOMAIN, "HUB7"), "cfg-1")
+        registry.async_get_device.assert_not_called()
+
+    def test_falls_back_to_the_legacy_lookup_on_old_ha(self) -> None:
+        registry = MagicMock(spec=["async_get_device"])
+        registry.async_get_device.return_value = "entry"
+
+        found = async_get_registered_device(registry, (DOMAIN, "HUB7"), "cfg-1")
+
+        assert found == "entry"
+        registry.async_get_device.assert_called_once_with(identifiers={(DOMAIN, "HUB7")})
