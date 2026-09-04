@@ -594,6 +594,7 @@ class AjaxCobrandedOptionsFlow(OptionsFlow):
                     new_data.pop(k, None)
             else:
                 for k, v in fcm_input.items():
+                    v = v.strip()
                     if v:
                         new_data[k] = v
                     elif k == "fcm_api_key":

@@ -969,6 +969,36 @@ class TestFcmRejectedCredsShortCircuit:
 
         listener._rejected_store.async_remove.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_reregisters_when_stored_credentials_lack_token(self) -> None:
+        """An incomplete stored registration cannot receive Ajax pushes."""
+        hass = MagicMock()
+        hass.async_add_executor_job = AsyncMock(
+            return_value={"fcm": {"registration": {"token": "replacement-token"}}}
+        )
+        listener = self._listener(hass)
+        listener._store.async_load = AsyncMock(
+            return_value={"fcm": {"registration": None, "installation": {"fid": "old"}}}
+        )
+        listener._store.async_save = AsyncMock()
+        listener._register_push_token = AsyncMock()
+        register_cls = MagicMock(return_value=MagicMock(register=MagicMock()))
+
+        reg_inv, clr_inv, reg_miss, clr_miss = self._repair_patches()
+        with (
+            reg_inv,
+            clr_inv,
+            reg_miss,
+            clr_miss,
+            patch("firebase_messaging.fcmregister.FcmRegister", register_cls),
+            patch("firebase_messaging.FcmPushClient", MagicMock()),
+        ):
+            await listener.async_start()
+
+        register_cls.assert_called_once()
+        listener._store.async_save.assert_awaited_once()
+        listener._register_push_token.assert_awaited_once_with("replacement-token")
+
 
 class TestIsTerminalFcmFailure:
     def test_credential_rejection_strings_are_terminal(self) -> None:
