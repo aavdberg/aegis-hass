@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.18.0-beta.3] - 2026-09-04
 
 ### Added
 - **Detectors show whether they have a "Delay when leaving" configured (#443).** A disabled-by-default diagnostic binary sensor on door, motion and combi detectors and MotionCams mirrors the per-detector exit-delay setting from the Ajax app. It came out of #443: the exit delay configured on a detector never shows up as the panel's `arming` state — that state is the app's own countdown, not the hub's — so until the countdown itself can be read, the one thing Home Assistant can show about the delay is that it exists. The flag already arrived with every device snapshot and was only missing an entity. No additional requests to Ajax.
