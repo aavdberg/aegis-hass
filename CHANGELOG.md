@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.18.0-beta.2] - 2026-09-04
 
 ### Fixed
 - **Home Assistant 2026.9 no longer warns about deprecated device-registry calls (#444).** HA 2026.9 flags two calls the integration made for every entity — the `via_device` link that attaches each detector to its hub, and the device lookup used when a device is removed on the panel side or the hub's firmware version is written to its device page — and HA 2027.8 removes them, at which point the integration would stop loading. Both now use the replacements. The via link is not a plain rename: the new form wants the hub's registry entry rather than its identifier, so every hub is registered before any platform adds entities, and a child whose hub has no entry yet is created without the link rather than rejected. Older cores (the integration still supports 2024.1) keep the previous behaviour, chosen at runtime from what the running core understands. Reported by @AnthonyOD with the exact file and line references. No additional requests to Ajax: this touches only Home Assistant's own registry.
