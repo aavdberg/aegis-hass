@@ -77,6 +77,7 @@
                     "poll_interval": "Ersatz-Abfrageintervall (Sekunden, 60-300)",
                     "force_arm": "Scharfschalten erzwingen (offene Sensoren und Störungen ignorieren)",
                     "expose_arm_home": "Schaltfläche „Zu Hause scharfschalten“ anzeigen",
+                    "delay_panel_states": "Ausgangs-/Eingangsverzögerung als Panel-Zustände anzeigen",
                     "use_pin_code": "PIN-Code für Scharf-/Unscharfschalten erforderlich",
                     "pin_code": "PIN-Code",
                     "fcm_project_id": "FCM-Projekt-ID (für Push-Benachrichtigungen)",
@@ -95,6 +96,7 @@
                 "data_description": {
                     "bypass_switches": "Überbrückungsschalter ermöglichen das Deaktivieren eines Geräts vor dem Scharfschalten. „Auto“ erstellt sie nur, wenn dein Ajax-Konto die Berechtigung zum Deaktivieren von Geräten hat.",
                     "expose_arm_home": "Fügt dem Alarmfeld einen Modus „Zu Hause scharfschalten“ hinzu. Er entspricht dem Nachtmodus und wird hauptsächlich für Amazon Alexa oder Nabu Casa Cloud benötigt. Deaktivieren, um die doppelte Schaltfläche auszublenden, wenn Sie diese nicht verwenden.",
+                    "delay_panel_states": "Wenn aktiv, zeigt das Alarmpanel \"arming\", während der Hub die \"Verzögerung beim Verlassen\" eines Melders ausführt, und \"pending\", während eine \"Verzögerung beim Betreten\" läuft — beides anhand der Signale des Hubs selbst, nicht eines eigenen Timers. Melder ohne Verzögerung (Sofortalarm) sind während \"arming\" bereits aktiv. Automationen, die auf \"armed_away\" warten, lösen aus, sobald die Ausgangsverzögerung abgelaufen ist. Der Rohzustand des Hubs bleibt im Attribut \"hub_state\" erhalten.",
                     "disable_push_warning": "Aktivieren, wenn Sie absichtlich ohne Push arbeiten. Blendet die wiederkehrende Erinnerung „FCM nicht konfiguriert“ und die Reparaturkarte aus. Echtzeit-Ereignisse (Türklingel, Scharf-/Unscharfschalten, Alarm) erreichen Home Assistant erst, wenn FCM konfiguriert ist.",
                     "persistent_notifications": "Wenn aktiviert, erscheinen die ausgewählten Ereignisse als dauerhafte Home-Assistant-Benachrichtigungen, die sichtbar bleiben, bis sie verworfen werden oder Home Assistant neu startet. Diese Ereignisse werden per Push (FCM) zugestellt — Push muss also konfiguriert sein, damit sie ankommen.",
                     "persistent_notification_events": "Welche Ereignisse eine dauerhafte Benachrichtigung auslösen. Standard sind echte Vorfälle (Alarm, Panik, Sabotage, Feuer, CO, Überflutung, Glasbruch). Füge Scharf-/Unscharfschalten, Bewegung oder Türklingel hinzu, wenn du diese auch möchtest."
@@ -376,7 +378,7 @@
                 "name": "Kontakt"
             },
             "delay_when_leaving": {
-              "name": "Verzögerung beim Verlassen"
+                "name": "Verzögerung beim Verlassen"
             },
             "siren_on_panic_button": {
                 "name": "Sirene bei Panikknopf"

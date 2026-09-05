@@ -15,6 +15,11 @@ from custom_components.aegis_ajax.api.hts.auth import (
     solve_challenge,
 )
 from custom_components.aegis_ajax.api.hts.crypto import decrypt, encrypt
+from custom_components.aegis_ajax.api.hts.hub_events import (
+    HubEvent,
+    is_hub_event,
+    parse_hub_event,
+)
 from custom_components.aegis_ajax.api.hts.hub_state import (
     KEY_ACTIVE_CHANNELS,
     KEY_ETH_ENABLED,
@@ -125,8 +130,9 @@ _SPACE_EVENT_PREFIX: bytes = b"\x02"
 # arm/disarm that produced NO FCM push at all — gating on 0x22 alone dropped
 # the family and the authoritative re-read never fired, so the panel lagged
 # until the next poll. SpaceControl fobs (#287) most likely use it too.
-# The same capture also held an [0x0b, 0x21, …] frame (≈30 s after the arm,
-# plausibly exit-delay completion) — left unmapped until more samples.
+# The same capture also held an [0x0b, 0x21, …] frame (≈30 s after the arm):
+# that is the hub-sourced EVENT family, pinned in #454 as exit-delay complete
+# and routed separately (`api/hts/hub_events.py`).
 _SPACE_EVENT_FAMILIES: frozenset[int] = frozenset({0x22, 0x30})
 
 
@@ -264,6 +270,7 @@ class HtsClient:
         # waiting for the hourly snapshot. The byte is forwarded for DEBUG
         # correlation logging only — never used as the state itself yet.
         self._on_chime_event: Callable[[str, str, int | None], None] | None = None
+        self._on_hub_event: Callable[[HubEvent], None] | None = None
         self._refresh_tasks: dict[str, asyncio.Task[None]] = {}
 
     # ------------------------------------------------------------------
@@ -655,6 +662,7 @@ class HtsClient:
         on_state_update: Callable[[str, HubNetworkState], None] | None = None,
         on_device_kv: DeviceKvCallback | None = None,
         on_chime_event: Callable[[str, str, int | None], None] | None = None,
+        on_hub_event: Callable[[HubEvent], None] | None = None,
     ) -> None:
         """Main receive loop: ACK messages and dispatch UPDATES.
 
@@ -670,10 +678,15 @@ class HtsClient:
             on_chime_event: Optional callback invoked with (hub_id, payload_hex,
                           candidate_state_byte) when a hub Chime-toggle event frame
                           (`type=0x08`) is recognised (#239).
+            on_hub_event: Optional callback invoked with a parsed `HubEvent`
+                          when a hub-sourced `type=0x08` frame (`0x0b 0x21 <hub>
+                          <code>`, #454) is recognised — exit-delay complete /
+                          entry-delay started. Unknown codes are forwarded too.
         """
         self._on_state_update = on_state_update
         self._on_device_kv = on_device_kv
         self._on_chime_event = on_chime_event
+        self._on_hub_event = on_hub_event
         self._ping_task = asyncio.create_task(self._ping_loop())
         self._status_refresh_task = asyncio.create_task(self._status_refresh_loop())
 
@@ -990,11 +1003,16 @@ class HtsClient:
         """
         redacted = _redact_payload_hex(msg.payload)
         _LOGGER.debug("  EVENT(0x08) payload hex: %s", redacted)
-        if self._on_chime_event is None:
-            return
         try:
             params = tlv_decode(msg.payload)
         except Exception:
+            return
+        if is_hub_event(params):
+            # Hub-sourced event (#454): a different family from the space
+            # events below, routed by shape before any state byte is read.
+            self._dispatch_hub_event(msg, params)
+            return
+        if self._on_chime_event is None:
             return
         if not self._is_space_event(params):
             return
@@ -1013,6 +1031,36 @@ class HtsClient:
             self._on_chime_event(hub_id, redacted, candidate)
         except Exception:  # noqa: BLE001
             _LOGGER.exception("on_chime_event callback raised for hub %s", hub_id)
+
+    def _dispatch_hub_event(self, msg: HtsMessage, params: list[bytes]) -> None:
+        """Parse a hub-sourced event frame and hand it to `on_hub_event` (#454).
+
+        The frame names its hub in params[2]; that id is trusted when it is a
+        hub this session authenticated for, otherwise the sender/receiver
+        endpoint decides (same rule as every other frame). A frame that can't
+        be tied to a known hub is dropped — never guessed.
+        """
+        if self._on_hub_event is None:
+            return
+        event = parse_hub_event(params)
+        if event is None:
+            return
+        known_hubs = {hub.hub_id for hub in self._hubs}
+        hub_id = event.hub_id if event.hub_id in known_hubs else self._hub_id_from_message(msg)
+        if hub_id is None:
+            return
+        if hub_id != event.hub_id:
+            event = HubEvent(
+                hub_id=hub_id,
+                code=event.code,
+                hub_ts=event.hub_ts,
+                expires_at=event.expires_at,
+                values=event.values,
+            )
+        try:
+            self._on_hub_event(event)
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("on_hub_event callback raised for hub %s", hub_id)
 
     @staticmethod
     def _is_space_event(params: list[bytes]) -> bool:

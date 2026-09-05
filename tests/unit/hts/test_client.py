@@ -1906,3 +1906,97 @@ class TestSeedHubStates:
         )
         await client._handle_update(msg)
         assert client.hub_states["12345678"].externally_powered is True
+
+
+class TestHubEvent:
+    """`type=0x08` hub-sourced event frames (#454) reach `on_hub_event`."""
+
+    # Real bvis-home frame, 2026-09-05: exit delay complete on hub 002B1A51.
+    _EXIT_COMPLETE = bytes.fromhex(
+        "050b052105002b1a51056805fdfd06360059b4e16605fdfd07006a9be6fa050a0a67"
+    )
+
+    def _client_with_hub(self, hub_id: str = "002B1A51") -> HtsClient:
+        client = _make_client()
+        client._hubs = [MagicMock(hub_id=hub_id)]
+        return client
+
+    def _msg(self, client: HtsClient, payload: bytes, sender: int = 0x002B1A51) -> HtsMessage:
+        return HtsMessage(
+            sender=sender,
+            receiver=client._sender_id,
+            seq_num=1,
+            link=10,
+            flags=0,
+            msg_type=0x08,
+            payload=payload,
+        )
+
+    def test_forwards_parsed_hub_event(self) -> None:
+        from custom_components.aegis_ajax.api.hts.hub_events import (
+            HUB_EVENT_EXIT_DELAY_COMPLETE,
+        )
+
+        client = self._client_with_hub()
+        hub_cb = MagicMock()
+        client._on_hub_event = hub_cb
+
+        client._handle_event_message(self._msg(client, self._EXIT_COMPLETE))
+
+        hub_cb.assert_called_once()
+        (event,) = hub_cb.call_args[0]
+        assert event.hub_id == "002B1A51"
+        assert event.code == HUB_EVENT_EXIT_DELAY_COMPLETE
+        assert event.hub_ts == 0x6A9BE6FA
+
+    def test_hub_event_is_not_offered_to_the_space_event_callback(self) -> None:
+        client = self._client_with_hub()
+        client._on_hub_event = MagicMock()
+        chime_cb = MagicMock()
+        client._on_chime_event = chime_cb
+
+        client._handle_event_message(self._msg(client, self._EXIT_COMPLETE))
+
+        chime_cb.assert_not_called()
+
+    def test_forwarded_even_without_a_space_event_callback(self) -> None:
+        # The old handler returned early when no chime callback was set; the
+        # hub-event path must not depend on it.
+        client = self._client_with_hub()
+        client._on_chime_event = None
+        hub_cb = MagicMock()
+        client._on_hub_event = hub_cb
+
+        client._handle_event_message(self._msg(client, self._EXIT_COMPLETE))
+
+        hub_cb.assert_called_once()
+
+    def test_space_event_does_not_reach_the_hub_callback(self) -> None:
+        client = self._client_with_hub("12345678")
+        hub_cb = MagicMock()
+        client._on_hub_event = hub_cb
+        client._on_chime_event = MagicMock()
+        payload = tlv_encode([b"\x02", b"\x22", b"\x77\xdd\x6a\x14", b"\x01", b"\x00\x00", b"\x00"])
+
+        client._handle_event_message(self._msg(client, payload, sender=0x12345678))
+
+        hub_cb.assert_not_called()
+
+    def test_callback_exception_is_contained(self) -> None:
+        client = self._client_with_hub()
+        client._on_hub_event = MagicMock(side_effect=RuntimeError("boom"))
+
+        client._handle_event_message(self._msg(client, self._EXIT_COMPLETE))  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_listen_accepts_on_hub_event(self) -> None:
+        client = _make_client()
+        client._connected = True
+        client._receive_message = AsyncMock(  # type: ignore[method-assign]
+            side_effect=[ConnectionError("closed")]
+        )
+        hub_cb = MagicMock()
+
+        await client.listen(on_hub_event=hub_cb)
+
+        assert client._on_hub_event is hub_cb

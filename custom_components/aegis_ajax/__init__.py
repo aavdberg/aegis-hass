@@ -67,10 +67,12 @@ from custom_components.aegis_ajax.api.session import log_fingerprint  # noqa: E4
 from custom_components.aegis_ajax.const import (  # noqa: E402
     APPLICATION_LABEL,
     CONF_AUTO_CREATE_LABELS,
+    CONF_DELAY_PANEL_STATES,
     CONF_DISABLE_PUSH_WARNING,
     CONF_PERSISTENT_NOTIFICATION_EVENTS,
     CONF_PERSISTENT_NOTIFICATIONS,
     DEFAULT_AUTO_CREATE_LABELS,
+    DEFAULT_DELAY_PANEL_STATES,
     DEFAULT_DISABLE_PUSH_WARNING,
     DEFAULT_PERSISTENT_NOTIFICATION_EVENTS,
     DEFAULT_PERSISTENT_NOTIFICATIONS,
@@ -398,6 +400,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: AjaxCobrandedConfigEntry
         poll_interval=entry.options.get("poll_interval", DEFAULT_POLL_INTERVAL),
         on_session_persist=_persist_session,
         entry_id=entry.entry_id,
+        delay_panel_states=bool(
+            entry.options.get(CONF_DELAY_PANEL_STATES, DEFAULT_DELAY_PANEL_STATES)
+        ),
     )
     try:
         await coordinator.async_config_entry_first_refresh()

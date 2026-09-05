@@ -99,6 +99,19 @@ async def async_get_config_entry_diagnostics(
                 # part of the served security_state above — a dump that hides
                 # it can't explain a panel showing (or missing) an alarm.
                 "intrusion_alarm_active": sid in coordinator.alarmed_space_ids,
+                # Same for the exit / entry delay overlay (#454): the option
+                # and what is currently shown, so a panel reading `arming`
+                # or `pending` (or not) can be explained from the dump.
+                "delay_panel_states": coordinator.delay_panel_states is True,
+                "delay_overlay": (
+                    {
+                        "kind": coordinator.delay_overlays[sid].kind.value,
+                        "ends_at": coordinator.delay_overlays[sid].ends_at.isoformat(),
+                        "from_hub": coordinator.delay_overlays[sid].from_hub,
+                    }
+                    if sid in coordinator.delay_overlays
+                    else None
+                ),
                 "online": s.is_online,
                 "malfunctions": s.malfunctions_count,
                 "group_mode_enabled": s.group_mode_enabled,

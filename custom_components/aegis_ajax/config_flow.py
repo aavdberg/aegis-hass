@@ -42,6 +42,7 @@ from custom_components.aegis_ajax.const import (
     BYPASS_SWITCHES_NEVER,
     CONF_AUTO_CREATE_LABELS,
     CONF_BYPASS_SWITCHES,
+    CONF_DELAY_PANEL_STATES,
     CONF_DISABLE_PUSH_WARNING,
     CONF_EXPOSE_ARM_HOME,
     CONF_FORCE_ARM,
@@ -51,6 +52,7 @@ from custom_components.aegis_ajax.const import (
     CONF_PHOTO_RETENTION_DAYS,
     DEFAULT_AUTO_CREATE_LABELS,
     DEFAULT_BYPASS_SWITCHES,
+    DEFAULT_DELAY_PANEL_STATES,
     DEFAULT_DISABLE_PUSH_WARNING,
     DEFAULT_EXPOSE_ARM_HOME,
     DEFAULT_PERSISTENT_NOTIFICATION_EVENTS,
@@ -634,6 +636,12 @@ class AjaxCobrandedOptionsFlow(OptionsFlow):
                         CONF_EXPOSE_ARM_HOME,
                         default=self._entry.options.get(
                             CONF_EXPOSE_ARM_HOME, DEFAULT_EXPOSE_ARM_HOME
+                        ),
+                    ): bool,
+                    vol.Optional(
+                        CONF_DELAY_PANEL_STATES,
+                        default=self._entry.options.get(
+                            CONF_DELAY_PANEL_STATES, DEFAULT_DELAY_PANEL_STATES
                         ),
                     ): bool,
                     vol.Optional(

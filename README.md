@@ -135,6 +135,7 @@ After setup, configure these in **Settings > Devices & Services > Aegis for Ajax
 | Poll interval | 300s | Fallback polling interval, allowed range 60-300 seconds (real-time stream handles most updates) |
 | Force arm | disabled | Arm ignoring open sensors and malfunctions (bypasses hub safety checks) |
 | Show "Arm Home" button | enabled | Whether the alarm panel advertises **Arm Home**. It duplicates Ajax's single partial (Night) mode and exists mainly so the Nabu Casa / Alexa skill discovers the panel. Disable to hide the redundant button if you don't use Alexa / Home Assistant Cloud — **Arm Away** and **Arm Night** are unaffected. |
+| Show exit / entry delays as panel states | disabled | Shows the hub's per-detector **Delay when leaving** as the panel's `arming` state and **Delay when entering** as `pending`, driven by the hub's own signals. Opt-in because automations waiting for `armed_away` then fire once the exit delay completes. See [Exit and entry delays](#exit-and-entry-delays). |
 | PIN code | disabled | Require PIN for arm/disarm from HA UI |
 | FCM credentials | — | Firebase credentials for push notifications (optional) |
 | I don't use push notifications | disabled | Enable if you intentionally run without push. Hides the recurring "FCM not configured" reminder and Repair card (and the WARNING log). Real-time events (doorbell, arm/disarm, alarm) still won't reach Home Assistant until you configure FCM — this only silences the reminder. |
@@ -273,6 +274,23 @@ Notes for Alexa:
 - Alexa requests a PIN only on **disarm**, and only supports a **4-digit** numeric code — Ajax PINs longer than 4 digits won't work for voice disarm.
 - When a PIN is configured, the panel reports `code_format: number`, which also makes the Home Assistant Lovelace alarm card render a numeric keypad.
 - **A bare "Alexa, arm \<name\>" arms _Home_, not Away.** This is Alexa's own default for an unqualified "arm" (it requests Armed Stay / Home), and since Arm Home maps to Ajax's partial mode the panel ends up partially armed. Home Assistant only forwards the mode Alexa asks for — the integration can't change Alexa's default. To arm fully: say **"Alexa, arm \<name\> in away mode"**, or create an **Alexa Routine** that maps your phrase (e.g. "arm the house") to the action *set panel → Armed Away*.
+
+<a id="exit-and-entry-delays"></a>
+
+### Exit and entry delays (`arming` / `pending`)
+
+Ajax runs the **Delay when leaving** and **Delay when entering** you configure per detector *inside the hub*: the moment you arm, the hub reports **armed**, and the delay only decides when the delayed detectors start raising alarms. So by default the panel goes straight from `disarmed` to `armed_away` — the one-second `arming` you may see is the Ajax app's own arm confirmation, not the detector delay (#443).
+
+The hub does report both ends of the delay on the always-on status channel the integration already keeps open, so with the **Show exit / entry delays as panel states** option (Configure, off by default) the panel adds two states driven by those signals, never by a timer of ours:
+
+| Panel state | Starts | Ends |
+| --- | --- | --- |
+| `arming` | The space is seen arming (app, keypad, keyfob or Home Assistant) and at least one of its detectors has a "Delay when leaving" | The hub reports the exit delay complete; disarm; alarm. As a safety net the longest configured delay bounds it, so a missed hub frame can't leave the panel stuck |
+| `pending` | The hub reports an entry delay started (a delayed detector triggered while armed) | The expiry the hub announced with it; disarm; alarm (`triggered` always wins) |
+
+What the states mean, plainly: during `arming` only the detectors **with** a delay are still quiet — detectors in Instant Alarm mode are already live, so the state describes the exit route, not the whole system. `pending` means someone is inside the entry delay: disarm before it runs out or the hub raises the alarm.
+
+With the option on, the panel also carries three attributes: `hub_state` (the state as the hub reports it, without the overlay), `exit_delay_seconds` (the longest "Delay when leaving" among the space's detectors) and `delay_ends_at` (the expected end of the running delay, or `null`). Nothing is persisted: after a restart the panel shows the hub's plain state until the next arm. Night mode shows `arming` only for detectors whose delays are set to apply in night mode; per-group panels are not covered yet.
 
 ### Panic button (SOS)
 

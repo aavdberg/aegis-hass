@@ -156,6 +156,37 @@ class TestAsyncSetupEntry:
         assert "password" not in call_kwargs or call_kwargs.get("password") is None
 
     @pytest.mark.asyncio
+    async def test_setup_entry_passes_delay_panel_states_option(self) -> None:
+        # #454: the coordinator learns the opt-in at construction; the options
+        # listener reloads the entry, so a toggle always reaches it.
+        from custom_components.aegis_ajax import async_setup_entry
+        from custom_components.aegis_ajax.const import CONF_DELAY_PANEL_STATES
+
+        hass = MagicMock()
+        hass.data = {}
+        hass.config_entries.async_forward_entry_setups = AsyncMock(return_value=True)
+        entry = MagicMock()
+        entry.entry_id = "entry-1"
+        entry.data = {"email": "t@example.com", "password_hash": "h", "spaces": ["s1"]}
+        entry.options = {CONF_DELAY_PANEL_STATES: True}
+        mock_client = MagicMock()
+        mock_client.connect = AsyncMock()
+        mock_coordinator = MagicMock()
+        mock_coordinator.async_config_entry_first_refresh = AsyncMock()
+        mock_coordinator.async_start_push_notifications = AsyncMock()
+
+        with (
+            patch("custom_components.aegis_ajax.AjaxGrpcClient", return_value=mock_client),
+            patch(
+                "custom_components.aegis_ajax.AjaxCobrandedCoordinator",
+                return_value=mock_coordinator,
+            ) as coord_cls,
+        ):
+            await async_setup_entry(hass, entry)
+
+        assert coord_cls.call_args.kwargs["delay_panel_states"] is True
+
+    @pytest.mark.asyncio
     async def test_setup_registers_hub_devices_before_forwarding_platforms(self) -> None:
         # #444: children link to their hub with `via_device_id`, which HA
         # rejects unless the hub is already a registered device. Platforms

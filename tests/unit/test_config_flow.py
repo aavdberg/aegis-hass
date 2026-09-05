@@ -850,6 +850,34 @@ class TestOptionsFlow:
         )
 
     @pytest.mark.asyncio
+    async def test_options_flow_offers_delay_panel_states_default_off(self) -> None:
+        # #454: opt-in, default OFF — automations keyed on `armed_*` would
+        # otherwise start firing seconds later than they do today.
+        from custom_components.aegis_ajax.const import CONF_DELAY_PANEL_STATES
+
+        flow, _ = self._make_flow(options={})
+        flow.async_show_form = MagicMock(return_value={"type": "form"})
+
+        await flow.async_step_init(None)
+
+        schema = flow.async_show_form.call_args.kwargs["data_schema"].schema
+        key = next(k for k in schema if str(k) == CONF_DELAY_PANEL_STATES)
+        assert key.default() is False
+
+    @pytest.mark.asyncio
+    async def test_options_flow_stores_delay_panel_states(self) -> None:
+        from custom_components.aegis_ajax.const import CONF_DELAY_PANEL_STATES
+
+        flow, _ = self._make_flow()
+        flow.async_create_entry = MagicMock(return_value={"type": "create_entry"})
+
+        await flow.async_step_init(
+            {"poll_interval": 60, "use_pin_code": False, CONF_DELAY_PANEL_STATES: True}
+        )
+        stored = flow.async_create_entry.call_args[1]["data"]
+        assert stored[CONF_DELAY_PANEL_STATES] is True
+
+    @pytest.mark.asyncio
     async def test_options_flow_clamps_poll_interval_to_minimum(self) -> None:
         flow, _ = self._make_flow()
         flow.async_create_entry = MagicMock(return_value={"type": "create_entry"})

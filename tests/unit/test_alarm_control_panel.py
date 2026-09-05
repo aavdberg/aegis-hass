@@ -227,6 +227,108 @@ class TestAlarmControlPanel:
         panel = AjaxAlarmControlPanel(coordinator=coordinator, space_id="s1")
         assert panel.alarm_state == AlarmControlPanelState.DISARMED
 
+    # --- #454: exit / entry delay overlay --------------------------------------
+
+    @staticmethod
+    def _overlay(kind: str):  # noqa: ANN205
+        from datetime import UTC, datetime
+
+        from custom_components.aegis_ajax.delay_states import DelayKind, DelayOverlay
+
+        return DelayOverlay(
+            kind=DelayKind(kind),
+            ends_at=datetime(2026, 9, 5, 9, 55, 7, tzinfo=UTC),
+            from_hub=False,
+        )
+
+    def test_alarm_state_arming_while_exit_delay_runs(self) -> None:
+        from homeassistant.components.alarm_control_panel import (
+            AlarmControlPanelState,  # type: ignore[attr-defined]
+        )
+
+        coordinator = MagicMock()
+        coordinator.spaces = {"s1": self._make_space(SecurityState.ARMED)}
+        coordinator.delay_overlays = {"s1": self._overlay("arming")}
+        panel = AjaxAlarmControlPanel(coordinator=coordinator, space_id="s1")
+        assert panel.alarm_state == AlarmControlPanelState.ARMING
+
+    def test_alarm_state_pending_while_entry_delay_runs(self) -> None:
+        from homeassistant.components.alarm_control_panel import (
+            AlarmControlPanelState,  # type: ignore[attr-defined]
+        )
+
+        coordinator = MagicMock()
+        coordinator.spaces = {"s1": self._make_space(SecurityState.NIGHT_MODE)}
+        coordinator.delay_overlays = {"s1": self._overlay("pending")}
+        panel = AjaxAlarmControlPanel(coordinator=coordinator, space_id="s1")
+        assert panel.alarm_state == AlarmControlPanelState.PENDING
+
+    def test_alarm_state_triggered_beats_pending(self) -> None:
+        from homeassistant.components.alarm_control_panel import (
+            AlarmControlPanelState,  # type: ignore[attr-defined]
+        )
+
+        coordinator = MagicMock()
+        coordinator.spaces = {"s1": self._make_space(SecurityState.ARMED)}
+        coordinator.alarmed_space_ids = {"s1"}
+        coordinator.delay_overlays = {"s1": self._overlay("pending")}
+        panel = AjaxAlarmControlPanel(coordinator=coordinator, space_id="s1")
+        assert panel.alarm_state == AlarmControlPanelState.TRIGGERED
+
+    def test_alarm_state_delay_overlay_never_shows_through_disarmed(self) -> None:
+        from homeassistant.components.alarm_control_panel import (
+            AlarmControlPanelState,  # type: ignore[attr-defined]
+        )
+
+        coordinator = MagicMock()
+        coordinator.spaces = {"s1": self._make_space(SecurityState.DISARMED)}
+        coordinator.delay_overlays = {"s1": self._overlay("arming")}
+        panel = AjaxAlarmControlPanel(coordinator=coordinator, space_id="s1")
+        assert panel.alarm_state == AlarmControlPanelState.DISARMED
+
+    def test_delay_attributes_present_when_option_enabled(self) -> None:
+        coordinator = MagicMock()
+        coordinator.spaces = {"s1": self._make_space(SecurityState.ARMED)}
+        coordinator.delay_panel_states = True
+        coordinator.delay_overlays = {"s1": self._overlay("arming")}
+        coordinator.space_exit_delay_seconds.return_value = 20
+        panel = AjaxAlarmControlPanel(coordinator=coordinator, space_id="s1")
+        attrs = panel.extra_state_attributes
+        assert attrs["hub_state"] == "armed_away"
+        assert attrs["exit_delay_seconds"] == 20
+        assert attrs["delay_ends_at"] == "2026-09-05T09:55:07+00:00"
+
+    def test_delay_attributes_null_end_when_no_delay_runs(self) -> None:
+        coordinator = MagicMock()
+        coordinator.spaces = {"s1": self._make_space(SecurityState.ARMED)}
+        coordinator.delay_panel_states = True
+        coordinator.delay_overlays = {}
+        coordinator.space_exit_delay_seconds.return_value = 0
+        panel = AjaxAlarmControlPanel(coordinator=coordinator, space_id="s1")
+        assert panel.extra_state_attributes["delay_ends_at"] is None
+
+    def test_delay_attributes_absent_when_option_disabled(self) -> None:
+        coordinator = MagicMock()
+        coordinator.spaces = {"s1": self._make_space(SecurityState.ARMED)}
+        coordinator.delay_panel_states = False
+        panel = AjaxAlarmControlPanel(coordinator=coordinator, space_id="s1")
+        attrs = panel.extra_state_attributes
+        assert "hub_state" not in attrs
+        assert "exit_delay_seconds" not in attrs
+
+    def test_optimistic_write_resyncs_the_delay_overlays(self) -> None:
+        coordinator = MagicMock()
+        coordinator.spaces = {"s1": self._make_space(SecurityState.DISARMED)}
+        panel = AjaxAlarmControlPanel(coordinator=coordinator, space_id="s1")
+        panel.hass = None
+        import asyncio
+
+        async def run() -> None:
+            panel._optimistic_state_update(SecurityState.ARMED)
+
+        asyncio.run(run())
+        coordinator.sync_delay_overlays.assert_called_once()
+
     def test_alarm_state_partially_armed_with_night_mode_is_armed_night(self) -> None:
         # In group mode the server reports PARTIALLY_ARMED while night mode
         # is active; `night_mode_enabled` is the discriminator (#284).

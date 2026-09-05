@@ -21,6 +21,11 @@ from homeassistant.util import dt as dt_util
 from custom_components.aegis_ajax.api import devices_parser
 from custom_components.aegis_ajax.api.devices import DevicesApi
 from custom_components.aegis_ajax.api.hts.client import HtsClient
+from custom_components.aegis_ajax.api.hts.hub_events import (
+    HUB_EVENT_ENTRY_DELAY_STARTED,
+    HUB_EVENT_EXIT_DELAY_COMPLETE,
+    HubEvent,
+)
 from custom_components.aegis_ajax.api.hub_object import (
     DeviceFirmwareUpdateInfo,
     HubFirmwareUpdateInfo,
@@ -61,6 +66,13 @@ from custom_components.aegis_ajax.const import (
     SIREN_VOLUME_LEVEL_KEY,
     ChimeStatus,
     ConnectionStatus,
+)
+from custom_components.aegis_ajax.delay_states import (
+    DELAY_OVERLAY_GRACE_SECONDS,
+    ArmDelays,
+    DelayKind,
+    DelayOverlay,
+    parse_arm_delays,
 )
 from custom_components.aegis_ajax.device_cache import DevicesCache
 from custom_components.aegis_ajax.entity import async_get_registered_device
@@ -428,6 +440,7 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         poll_interval: int = DEFAULT_POLL_INTERVAL,
         on_session_persist: Callable[[str, str], None] | None = None,
         entry_id: str = "",
+        delay_panel_states: bool = False,
     ) -> None:
         poll_interval = max(MIN_POLL_INTERVAL, min(MAX_POLL_INTERVAL, poll_interval))
         super().__init__(
@@ -484,6 +497,20 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # only, on purpose: never persisted or restored, so a reload/restart
         # cannot resurrect a stale alarm.
         self.alarmed_space_ids: set[str] = set()
+        # Exit / entry delays as `arming` / `pending` panel states (#454),
+        # opt-in. `delay_overlays` is the client-side overlay per space, driven
+        # by the hub's HTS delay events and bounded by a timer; like the
+        # alarm overlay it lives in memory only, so a restart shows the hub's
+        # plain state. `_device_arm_delays` holds each detector's 0xAC/0xAD
+        # seconds from its SETTINGS_BODY row (the fallback bound and the
+        # `exit_delay_seconds` attribute). `_last_security_states` is the
+        # previous observation per space, so an arm is detected wherever the
+        # state was written (poll, push, our own optimistic write).
+        self.delay_panel_states: bool = delay_panel_states
+        self.delay_overlays: dict[str, DelayOverlay] = {}
+        self._device_arm_delays: dict[str, ArmDelays] = {}
+        self._last_security_states: dict[str, Any] = {}
+        self._delay_overlay_cancels: dict[str, Any] = {}
         # SIM info is mostly static — cache and refresh once per hour
         self._sim_info_last_fetch: float = 0.0
         # Rooms rarely change — cache and refresh once per hour. None means
@@ -735,6 +762,7 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._ensure_authenticated()
             self.spaces = await self._refresh_spaces()
             self._drop_cleared_alarms()
+            self.sync_delay_overlays()
             self._prune_manual_refresh()
             now = asyncio.get_running_loop().time()
             self._update_hub_offline_repairs(now)
@@ -1489,6 +1517,7 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 on_state_update=self._on_hts_update,
                 on_device_kv=self._on_hts_device_kv,
                 on_chime_event=self._on_hts_space_event,
+                on_hub_event=self._on_hts_hub_event,
             )
         except Exception as exc:
             # Surface at WARNING (#111) — a silent DEBUG made these failures
@@ -1551,6 +1580,9 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # markers) is ignored. See api/hts/keyfobs.py.
             self._handle_keyfob_kv(hub_id, device_id_hex, kv)
             return
+        # Per-detector exit/entry delay seconds, 0xAC/0xAD (#454) — only the
+        # SETTINGS_BODY row carries them; a row without the keys is left alone.
+        self._track_arm_delays(device_id_hex, kv)
         # Case tampering via HTS 0x04/0x0f (#339), for hubs that carry the
         # signal only on the status stream. Runs before anything that can
         # return early so every device family is covered.
@@ -2435,6 +2467,7 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.spaces[space_id] = dc_replace(
             space, security_state=new_state, night_mode_enabled=night_mode_enabled
         )
+        self.sync_delay_overlays()
         self.async_set_updated_data({"spaces": self.spaces, "devices": self.devices})
 
     def apply_push_group_security_state(
@@ -2483,6 +2516,9 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if space_id not in self.spaces:
             return
         self.alarmed_space_ids.add(space_id)
+        # An alarm ends any running delay (#454): `triggered` wins, and the
+        # entry delay it most likely grew out of is over.
+        self._clear_delay_overlay(space_id)
         self.async_set_updated_data({"spaces": self.spaces, "devices": self.devices})
 
     def _drop_cleared_alarms(self) -> None:
@@ -2501,6 +2537,180 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 SecurityState.NONE,
             ):
                 self.alarmed_space_ids.discard(space_id)
+
+    # ------------------------------------------------------------------
+    # Exit / entry delays as panel states (#454)
+    # ------------------------------------------------------------------
+
+    def _track_arm_delays(self, device_id_hex: str, kv: dict[int, bytes]) -> None:
+        """Remember a detector's 0xAC/0xAD/0xAE delay settings when a row carries them."""
+        delays = parse_arm_delays(kv)
+        if delays is None or self._device_arm_delays.get(device_id_hex) == delays:
+            return
+        self._device_arm_delays[device_id_hex] = delays
+        _LOGGER.debug(
+            "Device %s delays: leaving %ds, entering %ds, night %s",
+            device_id_hex,
+            delays.arm_delay_seconds,
+            delays.alarm_delay_seconds,
+            delays.night_mode,
+        )
+
+    def _space_arm_delays(self, space_id: str) -> list[ArmDelays]:
+        space = self.spaces.get(space_id)
+        if space is None:
+            return []
+        return [
+            delays
+            for device_id, delays in self._device_arm_delays.items()
+            if (device := self.devices.get(device_id)) is not None and device.hub_id == space.hub_id
+        ]
+
+    def space_exit_delay_seconds(self, space_id: str, *, night_mode: bool = False) -> int:
+        """Longest "Delay when leaving" among the space's detectors (0 = none).
+
+        In night mode only detectors whose delays apply at night (0xAE) count;
+        a detector whose flag was never seen is left out, so a night arm never
+        shows a delay we cannot vouch for.
+        """
+        return max(
+            (
+                d.arm_delay_seconds
+                for d in self._space_arm_delays(space_id)
+                if not night_mode or d.night_mode
+            ),
+            default=0,
+        )
+
+    def _space_entry_delay_seconds(self, space_id: str) -> int:
+        return max((d.alarm_delay_seconds for d in self._space_arm_delays(space_id)), default=0)
+
+    def sync_delay_overlays(self) -> None:
+        """Reconcile the delay overlays with the current space states (#454).
+
+        Called after every write of a space's `security_state` — poll, push,
+        the panel's optimistic write — so the detection does not depend on
+        which path carried the arm. A disarm (however observed) ends any
+        running delay; a transition from disarmed to any armed state starts
+        `arming` when at least one detector on the space has an exit delay.
+        The very first observation of a space is a baseline, not a transition:
+        a restart while armed shows the hub's plain state.
+        """
+        from custom_components.aegis_ajax.const import SecurityState  # noqa: PLC0415
+
+        disarmed = (SecurityState.DISARMED, SecurityState.NONE)
+        for space_id in list(self.delay_overlays):
+            if space_id not in self.spaces:
+                self._clear_delay_overlay(space_id)
+        for space_id, space in self.spaces.items():
+            previous = self._last_security_states.get(space_id)
+            current = space.security_state
+            self._last_security_states[space_id] = current
+            if not self.delay_panel_states:
+                continue
+            if current in disarmed:
+                if self._clear_delay_overlay(space_id):
+                    self.async_set_updated_data({"spaces": self.spaces, "devices": self.devices})
+                continue
+            if previous is None or previous not in disarmed:
+                continue
+            seconds = self.space_exit_delay_seconds(
+                space_id, night_mode=current == SecurityState.NIGHT_MODE
+            )
+            if seconds <= 0:
+                continue
+            _LOGGER.debug(
+                "Space %s armed with a %ds exit delay: showing `arming` until the hub "
+                "reports the delay complete",
+                space_id,
+                seconds,
+            )
+            self._set_delay_overlay(space_id, DelayKind.ARMING, seconds, from_hub=False)
+
+    def _on_hts_hub_event(self, event: HubEvent) -> None:
+        """React to a hub-sourced HTS event (#454). Runs on the event loop."""
+        from custom_components.aegis_ajax.const import SecurityState  # noqa: PLC0415
+
+        space_id = next((sid for sid, s in self.spaces.items() if s.hub_id == event.hub_id), None)
+        if space_id is None:
+            return
+        _LOGGER.debug(
+            "Hub %s event 0x%02X (space %s): ts=%s expires=%s keys=%s",
+            event.hub_id,
+            event.code,
+            space_id,
+            event.hub_ts,
+            event.expires_at,
+            {f"0x{k:02X}": v.hex() for k, v in event.values.items()},
+        )
+        if not self.delay_panel_states:
+            return
+        overlay = self.delay_overlays.get(space_id)
+        if event.code == HUB_EVENT_EXIT_DELAY_COMPLETE:
+            if overlay is None or overlay.kind is not DelayKind.ARMING:
+                return
+            _LOGGER.debug("Space %s: hub reports the exit delay complete", space_id)
+            self._clear_delay_overlay(space_id)
+            self.async_set_updated_data({"spaces": self.spaces, "devices": self.devices})
+            return
+        if event.code == HUB_EVENT_ENTRY_DELAY_STARTED:
+            space = self.spaces[space_id]
+            if space.security_state in (SecurityState.DISARMED, SecurityState.NONE):
+                return
+            seconds = event.delay_seconds
+            from_hub = seconds is not None
+            if seconds is None:
+                seconds = self._space_entry_delay_seconds(space_id)
+            if seconds <= 0:
+                _LOGGER.debug(
+                    "Space %s: entry delay started but its length is unknown — not shown",
+                    space_id,
+                )
+                return
+            _LOGGER.debug(
+                "Space %s: entry delay started, %ds (%s)",
+                space_id,
+                seconds,
+                "hub expiry" if from_hub else "settings fallback",
+            )
+            self._set_delay_overlay(space_id, DelayKind.PENDING, seconds, from_hub=from_hub)
+
+    def _set_delay_overlay(
+        self, space_id: str, kind: DelayKind, seconds: int, *, from_hub: bool
+    ) -> None:
+        """Install an overlay that self-clears after `seconds` plus grace."""
+        self._cancel_delay_timer(space_id)
+        overlay = DelayOverlay(
+            kind=kind,
+            ends_at=dt_util.utcnow() + timedelta(seconds=seconds),
+            from_hub=from_hub,
+        )
+        self.delay_overlays[space_id] = overlay
+        self._delay_overlay_cancels[space_id] = self.hass.loop.call_later(
+            seconds + DELAY_OVERLAY_GRACE_SECONDS,
+            self._expire_delay_overlay,
+            space_id,
+            overlay,
+        )
+        self.async_set_updated_data({"spaces": self.spaces, "devices": self.devices})
+
+    def _expire_delay_overlay(self, space_id: str, overlay: DelayOverlay) -> None:
+        """Timer callback: drop `overlay` if it is still the one installed."""
+        if self.delay_overlays.get(space_id) is not overlay:
+            return
+        _LOGGER.debug("Space %s: %s overlay expired on its timer", space_id, overlay.kind.value)
+        self._clear_delay_overlay(space_id)
+        self.async_set_updated_data({"spaces": self.spaces, "devices": self.devices})
+
+    def _cancel_delay_timer(self, space_id: str) -> None:
+        cancel = self._delay_overlay_cancels.pop(space_id, None)
+        if cancel is not None:
+            cancel.cancel()
+
+    def _clear_delay_overlay(self, space_id: str) -> bool:
+        """Drop a space's overlay and its timer. Returns True when one existed."""
+        self._cancel_delay_timer(space_id)
+        return self.delay_overlays.pop(space_id, None) is not None
 
     def set_chime_optimistic(self, space_id: str, *, enable: bool) -> None:
         """Optimistically reflect a hub Chime toggle we just issued (#239).
