@@ -1756,6 +1756,19 @@ class TestChimeEvent:
             )
             assert HtsClient._is_space_event(params) is True, state_byte.hex()
 
+    def test_is_space_event_true_for_keypad_and_keyfob_families(self) -> None:
+        # bvis-home 2026-09-05: a Keypad arm emitted params[1]=0x43 and a
+        # SpaceControl keyfob disarm params[1]=0x2e — neither was in the set,
+        # so those arms produced no authoritative re-read (only the app's 0x22
+        # did). Same structure as 0x22/0x30: 4-byte source id + state byte.
+        from custom_components.aegis_ajax.api.hts.messages import tlv_decode
+
+        for family in (b"\x43", b"\x2e"):
+            params = tlv_decode(
+                tlv_encode([b"\x02", family, b"\x30\x9f\x84\xe5", b"\x01", b"\x00\x00", b"\x00"])
+            )
+            assert HtsClient._is_space_event(params) is True, family.hex()
+
     def test_is_space_event_false_for_other_event(self) -> None:
         from custom_components.aegis_ajax.api.hts.messages import tlv_decode
 

@@ -133,7 +133,11 @@ _SPACE_EVENT_PREFIX: bytes = b"\x02"
 # The same capture also held an [0x0b, 0x21, …] frame (≈30 s after the arm):
 # that is the hub-sourced EVENT family, pinned in #454 as exit-delay complete
 # and routed separately (`api/hts/hub_events.py`).
-_SPACE_EVENT_FAMILIES: frozenset[int] = frozenset({0x22, 0x30})
+# 0x43 = Keypad-originated (bvis-home 2026-09-05: a Keypad arm) and 0x2e =
+# SpaceControl-keyfob-originated (same day: a keyfob disarm) — neither was in
+# the set, so those arms produced no authoritative re-read while the app's
+# 0x22 did. Third time the matcher was too narrow (#454).
+_SPACE_EVENT_FAMILIES: frozenset[int] = frozenset({0x22, 0x2E, 0x30, 0x43})
 
 
 def _redact_payload_hex(data: bytes) -> str:
