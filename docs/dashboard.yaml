@@ -31,6 +31,35 @@ sections:
           - arm_night
           - arm_home
 
+      # ─── Exit / entry delays (#454) ───
+      # Needs the "Show exit / entry delays as panel states" option
+      # (Configure). The alarm panel above then reads `arming` / `pending`
+      # by itself; this card adds what the state alone can't show: the hub's
+      # own state under the overlay, the space's exit delay, and a live
+      # countdown to the end of the running delay (empty when none runs).
+      - type: entities
+        title: Exit / entry delays
+        icon: mdi:timer-sand
+        show_header_toggle: false
+        entities:
+          - type: attribute
+            entity: alarm_control_panel.my_hub
+            attribute: hub_state
+            name: Hub state
+            icon: mdi:shield-home-outline
+          - type: attribute
+            entity: alarm_control_panel.my_hub
+            attribute: exit_delay_seconds
+            name: Exit delay
+            suffix: s
+            icon: mdi:exit-run
+          - type: attribute
+            entity: alarm_control_panel.my_hub
+            attribute: delay_ends_at
+            name: Running delay ends
+            format: relative
+            icon: mdi:timer-outline
+
       # ─── System Health at a Glance ───
       - type: entities
         title: System Status
