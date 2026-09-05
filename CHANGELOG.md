@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.18.0-beta.5] - 2026-09-05
 
 ### Added
 - **The alarm panel can show the hub's exit and entry delays as `arming` and `pending` (#454, #443).** Ajax runs the per-detector "Delay when leaving" / "Delay when entering" inside the hub and reports **armed** the instant you arm, so those delays never reached the panel. The hub does announce both ends of them on the status channel the integration already keeps open — one event when the exit delay completes, one when an entry delay starts, the latter carrying the moment it expires — and the panel now follows those signals: `arming` from the arm until the hub says the exit delay is over (the longest configured delay bounds it, so a missed frame cannot leave the panel stuck), `pending` from the hub's entry-delay event until its expiry, a disarm or an alarm. Opt-in through a new option, off by default, because automations waiting for `armed_away` then fire once the exit delay completes; with it on, the panel also exposes `hub_state`, `exit_delay_seconds` and `delay_ends_at`. Nothing is persisted across restarts. Detectors without a delay are live during `arming` — the README says so. Prompted by @GherardS on #443, corroborated with a capture from @dheuts90 (#284). No additional requests to Ajax: both events and the delay settings ride the existing status connection.
