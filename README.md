@@ -334,7 +334,7 @@ data:
 
 An example Lovelace dashboard is included in [`docs/dashboard.yaml`](docs/dashboard.yaml) with sections for:
 
-- Alarm control panel + system status
+- Alarm control panel + system status, with the exit / entry delay card (hub state, exit delay, countdown to the end of a running delay — needs the option described in [Exit and entry delays](#exit-and-entry-delays))
 - Hub network (Ethernet, Wi-Fi, cellular, power)
 - Door & window sensors with batteries
 - Cameras & motion detectors with photo capture buttons
