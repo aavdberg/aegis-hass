@@ -226,6 +226,43 @@ class TestAsyncGetConfigEntryDiagnostics:
         assert space_info["malfunctions"] == 0
 
     @pytest.mark.asyncio
+    async def test_delay_overlay_is_reported(
+        self, coordinator: MagicMock, entry: MagicMock
+    ) -> None:
+        # #454: the panel's `arming` / `pending` is a client-side overlay, not
+        # part of the served security_state — a dump that hides it can't
+        # explain a panel showing (or missing) a delay.
+        from datetime import UTC, datetime
+
+        from custom_components.aegis_ajax.delay_states import DelayKind, DelayOverlay
+
+        coordinator.delay_panel_states = True
+        coordinator.delay_overlays = {
+            "space-1": DelayOverlay(
+                kind=DelayKind.PENDING,
+                ends_at=datetime(2026, 9, 5, 12, 3, 3, tzinfo=UTC),
+                from_hub=True,
+            )
+        }
+        result = await async_get_config_entry_diagnostics(MagicMock(), entry)
+        space_info = result["spaces"]["space-1"]
+        assert space_info["delay_panel_states"] is True
+        assert space_info["delay_overlay"] == {
+            "kind": "pending",
+            "ends_at": "2026-09-05T12:03:03+00:00",
+            "from_hub": True,
+        }
+
+    @pytest.mark.asyncio
+    async def test_delay_overlay_absent_is_null(
+        self, coordinator: MagicMock, entry: MagicMock
+    ) -> None:
+        coordinator.delay_panel_states = False
+        coordinator.delay_overlays = {}
+        result = await async_get_config_entry_diagnostics(MagicMock(), entry)
+        assert result["spaces"]["space-1"]["delay_overlay"] is None
+
+    @pytest.mark.asyncio
     async def test_devices_included(self, entry: MagicMock) -> None:
         result = await async_get_config_entry_diagnostics(MagicMock(), entry)
         assert "dev-1" in result["devices"]

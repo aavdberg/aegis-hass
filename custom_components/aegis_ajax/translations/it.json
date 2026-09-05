@@ -77,6 +77,7 @@
                     "poll_interval": "Intervallo di polling di riserva (secondi, 60-300)",
                     "force_arm": "Inserimento forzato (ignora sensori aperti e malfunzionamenti)",
                     "expose_arm_home": "Mostra il pulsante \"Attiva in casa\"",
+                    "delay_panel_states": "Mostra i ritardi di uscita / ingresso come stati del pannello",
                     "use_pin_code": "Richiedi codice PIN per inserire/disinserire",
                     "pin_code": "Codice PIN",
                     "fcm_project_id": "ID progetto FCM (per notifiche push)",
@@ -95,6 +96,7 @@
                 "data_description": {
                     "bypass_switches": "Gli interruttori di esclusione permettono di disattivare un dispositivo prima di inserire l'allarme. 'Auto' li crea solo se il tuo account Ajax ha il permesso di disattivare i dispositivi.",
                     "expose_arm_home": "Aggiunge una modalità Attiva in casa al pannello dell'allarme. Replica la modalità Notte ed è necessaria principalmente per Amazon Alexa o Nabu Casa Cloud. Disattivala per nascondere il pulsante duplicato se non li usi.",
+                    "delay_panel_states": "Se attivo, il pannello di allarme mostra \"arming\" mentre l'hub esegue il \"Ritardo all'uscita\" di un rilevatore e \"pending\" mentre è in corso un \"Ritardo all'ingresso\", entrambi guidati dai segnali dell'hub stesso, non da un nostro timer. I rilevatori senza ritardo (allarme istantaneo) sono già attivi durante \"arming\". Le automazioni che attendono \"armed_away\" si attiveranno al termine del ritardo di uscita. Lo stato grezzo dell'hub resta nell'attributo \"hub_state\".",
                     "disable_push_warning": "Attiva se usi l'integrazione di proposito senza push. Nasconde il promemoria ricorrente \"FCM non configurato\" e la scheda di riparazione. Gli eventi in tempo reale (campanello, attivazione/disattivazione, allarme) non raggiungeranno Home Assistant finché non configuri FCM.",
                     "persistent_notifications": "Quando attivo, gli eventi selezionati appaiono come notifiche persistenti di Home Assistant che restano visibili finché non vengono chiuse o Home Assistant si riavvia. Questi eventi arrivano via push (FCM), quindi il push deve essere configurato perché arrivino.",
                     "persistent_notification_events": "Quali eventi generano una notifica persistente. Predefiniti: incidenti reali (allarme, panico, manomissione, incendio, CO, allagamento, rottura vetri). Aggiungi inserimento/disinserimento, movimento o campanello se li vuoi anche."
@@ -376,7 +378,7 @@
                 "name": "Contatto"
             },
             "delay_when_leaving": {
-              "name": "Ritardo all'uscita"
+                "name": "Ritardo all'uscita"
             },
             "siren_on_panic_button": {
                 "name": "Sirena su pulsante antipanico"

@@ -26,6 +26,7 @@ from custom_components.aegis_ajax.const import (
     SecurityState,
 )
 from custom_components.aegis_ajax.coordinator import AjaxCobrandedCoordinator
+from custom_components.aegis_ajax.delay_states import DelayKind
 from custom_components.aegis_ajax.entity import build_device_info
 
 if TYPE_CHECKING:
@@ -406,6 +407,25 @@ class AjaxAlarmControlPanel(_AjaxAlarmPanelBase):
             SecurityState.NONE,
         ):
             return AlarmControlPanelState.TRIGGERED
+        # Exit / entry delay overlay (#454, opt-in): the hub reports ARMED the
+        # instant it arms and runs the per-detector delays internally, so
+        # `arming` / `pending` are derived from its HTS delay events. Same
+        # disarmed guard as above, for the same reason.
+        if space.id in self.coordinator.delay_overlays and space.security_state not in (
+            SecurityState.DISARMED,
+            SecurityState.NONE,
+        ):
+            overlay = self.coordinator.delay_overlays[space.id]
+            if overlay.kind is DelayKind.PENDING:
+                return AlarmControlPanelState.PENDING
+            return AlarmControlPanelState.ARMING
+        return self._hub_state()
+
+    def _hub_state(self) -> AlarmControlPanelState | None:
+        """The panel state as the hub itself reports it — no overlays."""
+        space = self._space
+        if space is None:
+            return None
         # In group mode the server reports PARTIALLY_ARMED while night mode
         # is active — identical to "some groups armed" in the lite state.
         # `night_mode_enabled` (snapshot + push events) disambiguates (#284).
@@ -418,11 +438,20 @@ class AjaxAlarmControlPanel(_AjaxAlarmPanelBase):
         space = self._space
         if space is None:
             return {}
-        return {
+        attrs: dict[str, Any] = {
             "hub_id": space.hub_id,
             "malfunctions": space.malfunctions_count,
             "connection_status": space.connection_status.name,
         }
+        # With the delay overlay on (#454) the raw hub state stays readable,
+        # along with the space's exit delay and the running delay's end.
+        if self.coordinator.delay_panel_states is True:
+            hub_state = self._hub_state()
+            overlay = self.coordinator.delay_overlays.get(space.id)
+            attrs["hub_state"] = hub_state.value if hub_state is not None else None
+            attrs["exit_delay_seconds"] = self.coordinator.space_exit_delay_seconds(space.id)
+            attrs["delay_ends_at"] = overlay.ends_at.isoformat() if overlay is not None else None
+        return attrs
 
     async def async_alarm_arm_away(self, code: str | None = None) -> None:
         self._validate_code(code)
@@ -499,6 +528,8 @@ class AjaxAlarmControlPanel(_AjaxAlarmPanelBase):
         # outlast when the server briefly serves stale state.
         if new_state == SecurityState.DISARMED:
             self.coordinator.alarmed_space_ids.discard(self._space_id)
+        # Our own arm is the earliest an exit delay can be seen starting (#454).
+        self.coordinator.sync_delay_overlays()
         expiry = asyncio.get_running_loop().time() + 10
         self.coordinator._optimistic_space_states[self._space_id] = (expiry, new_state)
         if self.hass is not None:

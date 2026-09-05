@@ -77,6 +77,7 @@
                     "poll_interval": "Interval de interogare de rezervă (secunde, 60-300)",
                     "force_arm": "Armare forțată (ignoră senzorii deschiși și defecțiunile)",
                     "expose_arm_home": "Afișează butonul „Armare acasă”",
+                    "delay_panel_states": "Afișează întârzierile de ieșire / intrare ca stări ale panoului",
                     "use_pin_code": "Necesită cod PIN pentru armare/dezarmare",
                     "pin_code": "Cod PIN",
                     "fcm_project_id": "ID proiect FCM (pentru notificări push)",
@@ -95,6 +96,7 @@
                 "data_description": {
                     "bypass_switches": "Comutatoarele de excludere permit dezactivarea unui dispozitiv înainte de armare. „Auto” le creează doar dacă contul tău Ajax are permisiunea de a dezactiva dispozitive.",
                     "expose_arm_home": "Adaugă un mod Armare acasă în panoul de alarmă. Reproduce modul de noapte și este necesar în principal pentru Amazon Alexa sau Nabu Casa Cloud. Dezactivează pentru a ascunde butonul duplicat dacă nu le folosești.",
+                    "delay_panel_states": "Când este activă, panoul de alarmă afișează \"arming\" cât timp hub-ul rulează \"Întârzierea la ieșire\" a unui detector și \"pending\" cât timp rulează o \"Întârziere la intrare\", ambele pe baza semnalelor hub-ului însuși, nu ale unui temporizator al nostru. Detectoarele fără întârziere (alarmă instantanee) sunt deja active în timpul \"arming\". Automatizările care așteaptă \"armed_away\" se vor declanșa când întârzierea de ieșire se încheie. Starea brută a hub-ului rămâne în atributul \"hub_state\".",
                     "disable_push_warning": "Activează dacă rulezi intenționat fără push. Ascunde memento-ul recurent „FCM neconfigurat” și cardul de reparație. Evenimentele în timp real (sonerie, armare/dezarmare, alarmă) tot nu vor ajunge în Home Assistant până nu configurezi FCM.",
                     "persistent_notifications": "Când este activat, evenimentele selectate apar ca notificări persistente Home Assistant care rămân vizibile până sunt închise sau Home Assistant repornește. Aceste evenimente sosesc prin push (FCM), deci push trebuie configurat pentru a ajunge.",
                     "persistent_notification_events": "Ce evenimente generează o notificare persistentă. Implicit, incidente reale (alarmă, panică, sabotaj, incendiu, CO, inundație, spargere de geam). Adaugă armare/dezarmare, mișcare sau sonerie dacă le vrei și pe acestea."
@@ -376,7 +378,7 @@
                 "name": "Contact"
             },
             "delay_when_leaving": {
-              "name": "Întârziere la plecare"
+                "name": "Întârziere la plecare"
             },
             "siren_on_panic_button": {
                 "name": "Sirenă la buton de panică"

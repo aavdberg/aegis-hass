@@ -409,6 +409,13 @@ CONF_FORCE_ARM = "force_arm"
 # Defaults to True to preserve the discovery path for existing Alexa users.
 CONF_EXPOSE_ARM_HOME = "expose_arm_home"
 DEFAULT_EXPOSE_ARM_HOME = True
+# Show the hub's exit / entry delays as the panel's `arming` / `pending`
+# states (#454), driven by the hub's own HTS delay events. Opt-in and default
+# OFF: with it on, automations keyed on `armed_*` fire once the exit delay
+# completes (seconds later than today), which is a behaviour change nobody
+# should get by upgrading.
+CONF_DELAY_PANEL_STATES = "delay_panel_states"
+DEFAULT_DELAY_PANEL_STATES = False
 CONF_PHOTO_RETENTION_DAYS = "photo_retention_days"
 CONF_PHOTO_MAX_PER_DEVICE = "photo_max_per_device"
 CONF_AUTO_CREATE_LABELS = "auto_create_labels"

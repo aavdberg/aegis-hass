@@ -77,6 +77,7 @@
                     "poll_interval": "Intervalle d'interrogation de secours (secondes, 60-300)",
                     "force_arm": "Armement forcé (ignorer capteurs ouverts et dysfonctionnements)",
                     "expose_arm_home": "Afficher le bouton « Armer à la maison »",
+                    "delay_panel_states": "Afficher les délais de sortie / d'entrée comme états du panneau",
                     "use_pin_code": "Exiger un code PIN pour armer/désarmer",
                     "pin_code": "Code PIN",
                     "fcm_project_id": "ID de projet FCM (pour les notifications push)",
@@ -95,6 +96,7 @@
                 "data_description": {
                     "bypass_switches": "Les interrupteurs de contournement permettent de désactiver un appareil avant l'armement. « Auto » ne les crée que si votre compte Ajax a l'autorisation de désactiver des appareils.",
                     "expose_arm_home": "Ajoute un mode Armer à la maison au panneau d'alarme. Il reproduit le mode Nuit et n'est nécessaire que pour Amazon Alexa ou Nabu Casa Cloud. Désactivez-le pour masquer le bouton en double si vous ne les utilisez pas.",
+                    "delay_panel_states": "Lorsque cette option est active, le panneau d'alarme affiche \"arming\" pendant que la centrale exécute le \"Délai de sortie\" d'un détecteur et \"pending\" pendant un \"Délai d'entrée\", tous deux pilotés par les signaux de la centrale elle-même, pas par une minuterie de notre part. Les détecteurs sans délai (alarme instantanée) sont déjà actifs pendant \"arming\". Les automatisations qui attendent \"armed_away\" se déclencheront à la fin du délai de sortie. L'état brut de la centrale reste dans l'attribut \"hub_state\".",
                     "disable_push_warning": "Activez si vous fonctionnez volontairement sans push. Masque le rappel récurrent « FCM non configuré » et la carte de réparation. Les événements en temps réel (sonnette, armement/désarmement, alarme) n'atteindront Home Assistant qu'une fois FCM configuré.",
                     "persistent_notifications": "Lorsque activé, les événements sélectionnés apparaissent comme des notifications persistantes de Home Assistant qui restent visibles jusqu'à leur fermeture ou au redémarrage de Home Assistant. Ces événements sont livrés via push (FCM), le push doit donc être configuré pour qu'ils arrivent.",
                     "persistent_notification_events": "Quels événements déclenchent une notification persistante. Par défaut, les incidents réels (alarme, panique, sabotage, incendie, CO, inondation, bris de verre). Ajoutez armement/désarmement, mouvement ou sonnette si vous les voulez aussi."
@@ -376,7 +378,7 @@
                 "name": "Contact"
             },
             "delay_when_leaving": {
-              "name": "Délai de sortie"
+                "name": "Délai de sortie"
             },
             "siren_on_panic_button": {
                 "name": "Sirène sur bouton panique"
