@@ -13,6 +13,7 @@ import pytest
 from custom_components.aegis_ajax.notification import (
     AjaxNotificationListener,
     _classify_fcm_failure,
+    _fcm_creds_hash,
     _validate_fcm_shape,
     async_probe_fcm_refusal_reason,
 )
@@ -575,8 +576,17 @@ class TestFcmPushClientSupervision:
         """
         hass = MagicMock()
         listener = AjaxNotificationListener(hass=hass, coordinator=MagicMock(), **_FCM_KWARGS)
+        expected_hash = _fcm_creds_hash(
+            fcm_project_id=_FCM_KWARGS["fcm_project_id"],
+            fcm_app_id=_FCM_KWARGS["fcm_app_id"],
+            fcm_api_key=_FCM_KWARGS["fcm_api_key"],
+            fcm_sender_id=_FCM_KWARGS["fcm_sender_id"],
+        )
         listener._store.async_load = AsyncMock(
-            return_value={"fcm": {"registration": {"token": "tok"}}}
+            return_value={
+                "fcm": {"registration": {"token": "tok"}},
+                "creds_hash": expected_hash,
+            }
         )
         listener._register_push_token = AsyncMock()
         listener._async_start_push_client = AsyncMock(return_value=False)

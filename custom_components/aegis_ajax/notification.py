@@ -242,10 +242,10 @@ class AjaxNotificationListener:
     @property
     def cache_creds_fingerprint(self) -> str | None:
         """Short digest of the cached credential set, or None if not cached."""
-        if isinstance(self._credentials, dict) and isinstance(
-            self._credentials.get("creds_hash"), str
-        ):
-            return self._credentials["creds_hash"][:16]
+        if isinstance(self._credentials, dict):
+            creds_hash = self._credentials.get("creds_hash")
+            if isinstance(creds_hash, str):
+                return creds_hash[:16]
         return None
 
     @property
