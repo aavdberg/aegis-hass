@@ -312,4 +312,5 @@ def _push_diagnostics(listener: Any) -> dict[str, Any]:  # noqa: ANN401
         "ever_delivered": listener.ever_delivered,
         "first_delivery_at": listener.first_delivery_at,
         "creds_fingerprint": listener.creds_fingerprint,
+        "cache_creds_fingerprint": listener.cache_creds_fingerprint,
     }

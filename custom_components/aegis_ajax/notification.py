@@ -240,6 +240,15 @@ class AjaxNotificationListener:
         return self._creds_fingerprint
 
     @property
+    def cache_creds_fingerprint(self) -> str | None:
+        """Short digest of the cached credential set, or None if not cached."""
+        if isinstance(self._credentials, dict) and isinstance(
+            self._credentials.get("creds_hash"), str
+        ):
+            return self._credentials["creds_hash"][:16]
+        return None
+
+    @property
     def ever_delivered(self) -> bool:
         """True if this credential set has ever delivered a push (#437)."""
         return self._ever_delivered
@@ -346,6 +355,13 @@ class AjaxNotificationListener:
             messaging_sender_id=self._fcm_sender_id,
         )
 
+        creds_hash = _fcm_creds_hash(
+            fcm_project_id=self._fcm_project_id,
+            fcm_app_id=self._fcm_app_id,
+            fcm_api_key=self._fcm_api_key,
+            fcm_sender_id=self._fcm_sender_id,
+        )
+
         stored_registration = (
             self._credentials.get("fcm", {}).get("registration")
             if isinstance(self._credentials, dict)
@@ -355,9 +371,25 @@ class AjaxNotificationListener:
         stored_token = (
             stored_registration.get("token") if isinstance(stored_registration, dict) else None
         )
-        if not stored_token:
+        stored_creds_hash = (
+            self._credentials.get("creds_hash") if isinstance(self._credentials, dict) else None
+        )
+
+        valid_cache = (
+            bool(stored_token)
+            and isinstance(stored_creds_hash, str)
+            and stored_creds_hash == creds_hash
+        )
+
+        if not valid_cache:
             if self._credentials:
-                _LOGGER.info("Stored FCM registration has no token; registering again")
+                if not stored_token:
+                    _LOGGER.info("Stored FCM registration has no token; registering again")
+                else:
+                    _LOGGER.info(
+                        "cached push registration belongs to a different credential set; "
+                        "registering again"
+                    )
                 self._credentials = None
             # Short-circuit if this exact credential set was already rejected
             # by Google (#227). Without working credentials, `async_start` runs
@@ -366,12 +398,6 @@ class AjaxNotificationListener:
             # failed requests against the Firebase project. We remember the
             # rejected set by hash (never the secret) and skip the network
             # attempt until the user changes the values.
-            creds_hash = _fcm_creds_hash(
-                fcm_project_id=self._fcm_project_id,
-                fcm_app_id=self._fcm_app_id,
-                fcm_api_key=self._fcm_api_key,
-                fcm_sender_id=self._fcm_sender_id,
-            )
             rejected = await self._rejected_store.async_load()
             if rejected and rejected.get("hash") == creds_hash:
                 _LOGGER.warning(
@@ -421,6 +447,7 @@ class AjaxNotificationListener:
                 else:
                     raw_result = await self._hass.async_add_executor_job(registerer.register)
                 self._credentials = dict(raw_result)
+                self._credentials["creds_hash"] = creds_hash
                 await self._store.async_save(self._credentials)
                 if rejected:
                     # These values worked — drop any stale rejection marker.
