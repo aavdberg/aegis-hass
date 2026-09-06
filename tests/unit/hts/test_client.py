@@ -96,6 +96,17 @@ class TestClientSessions:
         assert len(sessions) == 10
         assert sum(session.is_current for session in sessions) == 1
 
+    @pytest.mark.asyncio
+    async def test_session_request_cancels_pending_future_after_send_failure(self) -> None:
+        client = _make_client()
+        client._connected = True
+        client._send_message = AsyncMock(side_effect=ConnectionError("closed"))  # type: ignore[method-assign]
+
+        with pytest.raises(ConnectionError, match="closed"):
+            await client.get_client_sessions()
+
+        assert client._pending_user_registration_response is None
+
 
 # ---------------------------------------------------------------------------
 # __init__ state

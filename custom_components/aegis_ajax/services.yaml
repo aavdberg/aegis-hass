@@ -156,8 +156,10 @@ set_photo_on_demand_mode:
 list_client_sessions:
   name: List account sessions
   description: >-
-    Return the active Ajax account sessions. The currently active Aegis
-    session is marked is_current when it can be identified from the response.
+    Return active Ajax account sessions for manual inspection on demand. This
+    service calls an internal Ajax endpoint that may rate limit frequent
+    requests; do not poll it in automations. The currently active Aegis
+    session is marked is_current when it can be identified.
   target: {}
   fields:
     entry_id:

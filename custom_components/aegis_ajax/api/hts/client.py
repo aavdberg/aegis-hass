@@ -738,11 +738,14 @@ class HtsClient:
                 )
             except TimeoutError as exc:
                 raise HtsConnectionError(
-                    f"Timed out waiting for USER_REGISTRATION key 0x{response_key:02X}"
+                    f"Timed out waiting for USER_REGISTRATION key 0x{response_key:02X} "
+                    "(the Ajax server may be rate limiting requests)"
                 ) from exc
             finally:
                 if self._pending_user_registration_response == (response_key, future):
                     self._pending_user_registration_response = None
+                if not future.done():
+                    future.cancel()
 
     async def _send_request_payload(self, hub_id: str, *, sub_key: int, label: str) -> None:
         """Generic 3-param REQUEST sender shared by SETTINGS and STATUS variants."""

@@ -560,22 +560,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: AjaxCobrandedConfigEntry
         "disarm_night_mode": _disarm_night_mode_handler,
         "press_panic_button": _press_panic_button_handler,
         "set_photo_on_demand_mode": _set_photo_on_demand_mode_handler,
+        "list_client_sessions": _list_client_sessions_handler,
     }
     # KeyError here means a name was added to _CUSTOM_SERVICE_NAMES without a
     # handler — fail loudly at setup rather than silently skipping it.
     for name in _CUSTOM_SERVICE_NAMES:
-        if name not in service_handlers:
-            continue
         if hass.services.has_service(DOMAIN, name):
             continue
-        hass.services.async_register(DOMAIN, name, service_handlers[name])
-    if not hass.services.has_service(DOMAIN, "list_client_sessions"):
-        hass.services.async_register(
-            DOMAIN,
-            "list_client_sessions",
-            _list_client_sessions_handler,
-            supports_response=SupportsResponse.ONLY,
+        kwargs = (
+            {"supports_response": SupportsResponse.ONLY} if name == "list_client_sessions" else {}
         )
+        hass.services.async_register(DOMAIN, name, service_handlers[name], **kwargs)
     # Reload integration when options change (e.g. FCM credentials)
     entry.async_on_unload(entry.add_update_listener(_async_options_update_listener))
 
