@@ -270,7 +270,13 @@ class TestFcmCredentialsRepairFlow:
             "fcm_api_key": "new-key",
             "fcm_sender_id": "new-sender",
         }
-        await flow.async_step_init(new_creds)
+        # The marker removal (#464) is exercised by its own test below; here
+        # a real `Store` on a mock hass would fail on the unlink call.
+        with patch(
+            "custom_components.aegis_ajax.repairs.Store",
+            return_value=MagicMock(async_remove=AsyncMock()),
+        ):
+            await flow.async_step_init(new_creds)
 
         # Existing entry data is preserved; only the four FCM fields rotate
         flow.hass.config_entries.async_update_entry.assert_called_once_with(
@@ -278,6 +284,46 @@ class TestFcmCredentialsRepairFlow:
         )
         flow.hass.config_entries.async_reload.assert_awaited_once_with("entry-abc")
         flow.async_create_entry.assert_called_once_with(data={})
+
+    @pytest.mark.asyncio
+    async def test_init_with_input_clears_the_rejected_marker_before_reloading(self) -> None:
+        """#464 — the only other place the `fcm_rejected` marker is removed is
+        downstream of the short-circuit that reads it, so a user who re-submits
+        the same (correct) four values from this card got the same fingerprint
+        and the same short-circuit: the remedy the warning prescribed could not
+        undo the state it reported. Submitting the card is the user saying
+        "try again" — it must always be a real retry, so the marker goes
+        before the reload that runs the registration."""
+        from custom_components.aegis_ajax.const import (
+            FCM_REJECTED_STORAGE_KEY,
+            FCM_STORAGE_VERSION,
+        )
+
+        entry = MagicMock()
+        entry.data = {"email": "u@x", "fcm_project_id": "same"}
+        flow = FcmCredentialsRepairFlow("entry-abc")
+        flow.hass = self._make_hass(entry)
+        flow.hass.config_entries.async_update_entry = MagicMock()
+        flow.async_create_entry = MagicMock(return_value={"type": "create_entry"})
+
+        order: list[str] = []
+
+        async def _remove() -> None:
+            order.append("remove")
+
+        async def _reload(_entry_id: str) -> None:
+            order.append("reload")
+
+        store = MagicMock()
+        store.async_remove = AsyncMock(side_effect=_remove)
+        flow.hass.config_entries.async_reload = AsyncMock(side_effect=_reload)
+
+        with patch("custom_components.aegis_ajax.repairs.Store", return_value=store) as store_cls:
+            await flow.async_step_init({"fcm_project_id": "same"})
+
+        store_cls.assert_called_once_with(flow.hass, FCM_STORAGE_VERSION, FCM_REJECTED_STORAGE_KEY)
+        store.async_remove.assert_awaited_once()
+        assert order == ["remove", "reload"]
 
     @pytest.mark.asyncio
     async def test_init_aborts_if_entry_vanished(self) -> None:

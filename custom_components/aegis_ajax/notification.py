@@ -18,6 +18,8 @@ from custom_components.aegis_ajax.const import (
     DOMAIN,
     DOORBELL_DEVICE_TYPES,
     DOORBELL_EVENT_TYPE,
+    FCM_REJECTED_STORAGE_KEY,
+    FCM_STORAGE_VERSION,
     INTRUSION_ALARM_RAW_TAGS,
     MOTION_EVENT_TYPE,
     RAW_TAG_TO_GROUP_SECURITY_STATE,
@@ -51,10 +53,11 @@ _LOGGER = logging.getLogger(__name__)
 STORAGE_KEY = f"{DOMAIN}_fcm_credentials"
 # Records the SHA-256 fingerprint of the most recent credential set that
 # Google terminally rejected, so we don't re-hit the Firebase project on every
-# restart with a key we already know is wrong (#227).
-REJECTED_STORAGE_KEY = f"{DOMAIN}_fcm_rejected"
+# restart with a key we already know is wrong (#227). Defined in `const.py`
+# so the Repair flow can clear it without importing this module (#464).
+REJECTED_STORAGE_KEY = FCM_REJECTED_STORAGE_KEY
 DELIVERY_STORAGE_KEY = f"{DOMAIN}_fcm_delivery"
-STORAGE_VERSION = 1
+STORAGE_VERSION = FCM_STORAGE_VERSION
 
 # Ajax dispatches two FCM messages per security transition (one user-facing
 # Notification + one silent DispatchEvent), separated by ~20-30 ms server-side.
@@ -385,6 +388,14 @@ class AjaxNotificationListener:
             if self._credentials:
                 if not stored_token:
                     _LOGGER.info("Stored FCM registration has no token; registering again")
+                elif stored_creds_hash is None:
+                    # Pre-1.19.0 cache: made before registrations carried a
+                    # fingerprint. Every upgrading install sees this once; it
+                    # says nothing about whether the values changed (#464).
+                    _LOGGER.info(
+                        "cached push registration carries no credential fingerprint "
+                        "(made before 1.19.0); registering again once"
+                    )
                 else:
                     _LOGGER.info(
                         "cached push registration belongs to a different credential set; "
