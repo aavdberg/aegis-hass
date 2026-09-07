@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.0] - unreleased
+
+### Added
+- **The active sessions of the Ajax account can be listed from Home Assistant (#330, #441).** A new `aegis_ajax.list_client_sessions` action returns the sessions the Ajax servers hold for the account — device model, OS, client version, application label, creation and expiry — with the integration's own session marked `is_current` when the response allows it. The wire format is not a protobuf: the response is the flat sub-key/value stream the status connection already speaks, decoded by a parser validated against a real ten-session capture whose checksum the test asserts, including the trailing bytes the live server appends. The action is meant for manual, on-demand inspection: the endpoint rate limits repeated requests, and the description says so. Terminating sessions is a separate change (#447) and is not in this release. Found, decoded and built by @aavdberg. Adds one request to Ajax **only when the action is called**, the same request the Ajax app makes when its sessions screen is opened; nothing periodic.
+
+### Fixed
+- **A push registration made for a previous set of Firebase credentials is no longer reused (#452, #458).** Changing any of the four FCM values in the options kept the registration cached for the old values, so the new ones never took effect until the cache was deleted by hand. The registration now carries a one-way fingerprint of the four values it was made with, and a cache whose fingerprint is missing or differs is discarded and registered again — every existing install does this once, on the first start after this update. Credentials Google already refused stay throttled as before (#227). The diagnostics dump shows the fingerprint of the cached registration next to the one of the values in force. Found, designed and fixed by @aavdberg. No additional requests to Ajax: the single extra call is one Firebase registration per install, once.
+
 ## [1.18.0] - 2026-09-05
 
 Consolidates the `1.18.0-beta.1` → `beta.5` series, same bits as `beta.5`. The exit / entry delay panel states were confirmed on two installs: the reporter's (@GherardS, including the HomeKit countdown that started #443) and the maintainer's, where the delay settings are read from the hub as expected. The device-registry fix (#444) is confirmed on Home Assistant 2026.9 with zero deprecation warnings, and the "Delay when leaving" sensor reads correctly on the detectors that have it. The push delivery record (#437) has a third-party baseline as well as the maintainer's.
