@@ -104,6 +104,7 @@ class TestAsyncGetConfigEntryDiagnostics:
         listener.ever_delivered = False
         listener.first_delivery_at = None
         listener.creds_fingerprint = "abc123def456"
+        listener.cache_creds_fingerprint = "abc123def456"
         listener._fcm_client_started_at = None
 
         push = (await async_get_config_entry_diagnostics(MagicMock(), entry))["push"]
@@ -114,6 +115,7 @@ class TestAsyncGetConfigEntryDiagnostics:
         assert push["pushes_received_since_start"] == 0
         assert push["last_push_seconds_ago"] is None
         assert push["creds_fingerprint"] == "abc123def456"
+        assert push["cache_creds_fingerprint"] == "abc123def456"
 
     @pytest.mark.asyncio
     async def test_push_reports_not_configured_without_a_listener(

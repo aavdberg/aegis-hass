@@ -13,6 +13,7 @@ import pytest
 from custom_components.aegis_ajax.notification import (
     AjaxNotificationListener,
     _classify_fcm_failure,
+    _fcm_creds_hash,
     _validate_fcm_shape,
     async_probe_fcm_refusal_reason,
 )
@@ -575,8 +576,17 @@ class TestFcmPushClientSupervision:
         """
         hass = MagicMock()
         listener = AjaxNotificationListener(hass=hass, coordinator=MagicMock(), **_FCM_KWARGS)
+        expected_hash = _fcm_creds_hash(
+            fcm_project_id=_FCM_KWARGS["fcm_project_id"],
+            fcm_app_id=_FCM_KWARGS["fcm_app_id"],
+            fcm_api_key=_FCM_KWARGS["fcm_api_key"],
+            fcm_sender_id=_FCM_KWARGS["fcm_sender_id"],
+        )
         listener._store.async_load = AsyncMock(
-            return_value={"fcm": {"registration": {"token": "tok"}}}
+            return_value={
+                "fcm": {"registration": {"token": "tok"}},
+                "creds_hash": expected_hash,
+            }
         )
         listener._register_push_token = AsyncMock()
         listener._async_start_push_client = AsyncMock(return_value=False)
@@ -998,6 +1008,166 @@ class TestFcmRejectedCredsShortCircuit:
         register_cls.assert_called_once()
         listener._store.async_save.assert_awaited_once()
         listener._register_push_token.assert_awaited_once_with("replacement-token")
+
+
+class TestFcmCacheFingerprinting:
+    """Issue #452 — invalidate cached FCM registration on credential changes."""
+
+    @staticmethod
+    def _listener(hass: MagicMock) -> AjaxNotificationListener:
+        listener = AjaxNotificationListener(
+            hass=hass, coordinator=MagicMock(), **_FCM_KWARGS, entry_id="entry-x"
+        )
+        listener._rejected_store.async_load = AsyncMock(return_value=None)
+        listener._rejected_store.async_save = AsyncMock()
+        listener._rejected_store.async_remove = AsyncMock()
+        return listener
+
+    @staticmethod
+    def _expected_hash() -> str:
+        from custom_components.aegis_ajax.notification import _fcm_creds_hash
+
+        return _fcm_creds_hash(
+            fcm_project_id=_FCM_KWARGS["fcm_project_id"],
+            fcm_app_id=_FCM_KWARGS["fcm_app_id"],
+            fcm_api_key=_FCM_KWARGS["fcm_api_key"],
+            fcm_sender_id=_FCM_KWARGS["fcm_sender_id"],
+        )
+
+    @staticmethod
+    def _repair_patches() -> tuple:
+        return (
+            patch(
+                "custom_components.aegis_ajax.notification.async_register_fcm_credentials_invalid"
+            ),
+            patch("custom_components.aegis_ajax.notification.async_clear_fcm_credentials_invalid"),
+            patch("custom_components.aegis_ajax.notification.async_register_fcm_not_configured"),
+            patch("custom_components.aegis_ajax.notification.async_clear_fcm_not_configured"),
+        )
+
+    @pytest.mark.asyncio
+    async def test_valid_cache_with_matching_creds_hash_skips_reregistration(self) -> None:
+        hass = MagicMock()
+        listener = self._listener(hass)
+        expected_hash = self._expected_hash()
+        listener._store.async_load = AsyncMock(
+            return_value={
+                "fcm": {"registration": {"token": "cached-token"}},
+                "creds_hash": expected_hash,
+            }
+        )
+        listener._store.async_save = AsyncMock()
+        listener._register_push_token = AsyncMock()
+        register_cls = MagicMock()
+
+        reg_inv, clr_inv, reg_miss, clr_miss = self._repair_patches()
+        with (
+            reg_inv,
+            clr_inv,
+            reg_miss,
+            clr_miss,
+            patch("firebase_messaging.fcmregister.FcmRegister", register_cls),
+            patch("firebase_messaging.FcmPushClient", MagicMock()),
+        ):
+            await listener.async_start()
+
+        register_cls.assert_not_called()
+        listener._register_push_token.assert_awaited_once_with("cached-token")
+        assert listener.cache_creds_fingerprint == expected_hash[:16]
+
+    @pytest.mark.asyncio
+    async def test_reregisters_when_stored_creds_hash_is_missing(self) -> None:
+        hass = MagicMock()
+        hass.async_add_executor_job = AsyncMock(
+            return_value={"fcm": {"registration": {"token": "new-token"}}}
+        )
+        listener = self._listener(hass)
+        expected_hash = self._expected_hash()
+        listener._store.async_load = AsyncMock(
+            return_value={"fcm": {"registration": {"token": "old-token"}}}
+        )
+        listener._store.async_save = AsyncMock()
+        listener._register_push_token = AsyncMock()
+        register_cls = MagicMock(return_value=MagicMock(register=MagicMock()))
+
+        reg_inv, clr_inv, reg_miss, clr_miss = self._repair_patches()
+        with (
+            reg_inv,
+            clr_inv,
+            reg_miss,
+            clr_miss,
+            patch("firebase_messaging.fcmregister.FcmRegister", register_cls),
+            patch("firebase_messaging.FcmPushClient", MagicMock()),
+        ):
+            await listener.async_start()
+
+        register_cls.assert_called_once()
+        listener._store.async_save.assert_awaited_once_with(
+            {"fcm": {"registration": {"token": "new-token"}}, "creds_hash": expected_hash}
+        )
+        listener._register_push_token.assert_awaited_once_with("new-token")
+
+    @pytest.mark.asyncio
+    async def test_reregisters_when_stored_creds_hash_mismatches(self) -> None:
+        hass = MagicMock()
+        hass.async_add_executor_job = AsyncMock(
+            return_value={"fcm": {"registration": {"token": "new-token"}}}
+        )
+        listener = self._listener(hass)
+        expected_hash = self._expected_hash()
+        listener._store.async_load = AsyncMock(
+            return_value={
+                "fcm": {"registration": {"token": "old-token"}},
+                "creds_hash": "different-hash-from-previous-creds",
+            }
+        )
+        listener._store.async_save = AsyncMock()
+        listener._register_push_token = AsyncMock()
+        register_cls = MagicMock(return_value=MagicMock(register=MagicMock()))
+
+        reg_inv, clr_inv, reg_miss, clr_miss = self._repair_patches()
+        with (
+            reg_inv,
+            clr_inv,
+            reg_miss,
+            clr_miss,
+            patch("firebase_messaging.fcmregister.FcmRegister", register_cls),
+            patch("firebase_messaging.FcmPushClient", MagicMock()),
+        ):
+            await listener.async_start()
+
+        register_cls.assert_called_once()
+        listener._store.async_save.assert_awaited_once_with(
+            {"fcm": {"registration": {"token": "new-token"}}, "creds_hash": expected_hash}
+        )
+        listener._register_push_token.assert_awaited_once_with("new-token")
+
+    @pytest.mark.asyncio
+    async def test_rejected_store_check_runs_before_cache_reregistration(self) -> None:
+        hass = MagicMock()
+        listener = self._listener(hass)
+        expected_hash = self._expected_hash()
+        listener._store.async_load = AsyncMock(
+            return_value={
+                "fcm": {"registration": {"token": "stale-token"}},
+                "creds_hash": "old-hash",
+            }
+        )
+        listener._rejected_store.async_load = AsyncMock(return_value={"hash": expected_hash})
+        register_cls = MagicMock()
+
+        reg_inv, clr_inv, reg_miss, clr_miss = self._repair_patches()
+        with (
+            reg_inv as reg,
+            clr_inv,
+            reg_miss,
+            clr_miss,
+            patch("firebase_messaging.fcmregister.FcmRegister", register_cls),
+        ):
+            await listener.async_start()
+
+        register_cls.assert_not_called()
+        reg.assert_called_once_with(hass, entry_id="entry-x")
 
 
 class TestIsTerminalFcmFailure:
