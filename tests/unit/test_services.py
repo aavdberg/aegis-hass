@@ -270,6 +270,41 @@ class TestClientSessionServices:
         coordinator._hts_client.get_client_sessions.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_uncertain_outcome_verification_attempts_one_reconnect(self) -> None:
+        from custom_components.aegis_ajax.api.hts.client import HtsConnectionError
+        from custom_components.aegis_ajax.coordinator import AjaxCobrandedCoordinator
+
+        coordinator = object.__new__(AjaxCobrandedCoordinator)
+        coordinator._hts_client = None
+        coordinator._maybe_restart_hts = AsyncMock()
+
+        monotonic = iter([0.0, 30.0])
+        with (
+            patch(
+                "custom_components.aegis_ajax.coordinator.time.monotonic",
+                side_effect=monotonic,
+            ),
+            pytest.raises(HtsConnectionError, match="did not reconnect"),
+        ):
+            await coordinator._async_verify_termination_after_uncertain_outcome(2)
+
+        coordinator._maybe_restart_hts.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_uncertain_outcome_empty_verification_is_unknown(self) -> None:
+        from custom_components.aegis_ajax.api.hts.client import HtsConnectionError
+        from custom_components.aegis_ajax.coordinator import AjaxCobrandedCoordinator
+
+        coordinator = object.__new__(AjaxCobrandedCoordinator)
+        coordinator._hts_client = MagicMock(is_connected=True)
+        coordinator._hts_client.get_client_sessions = AsyncMock(return_value=[])
+        coordinator._maybe_restart_hts = AsyncMock()
+
+        with pytest.raises(HtsConnectionError, match="outcome is unknown"):
+            await coordinator._async_verify_termination_after_uncertain_outcome(2)
+        coordinator._hts_client.get_client_sessions.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_termination_requires_confirmation(self) -> None:
         from homeassistant.exceptions import ServiceValidationError
 

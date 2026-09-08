@@ -763,9 +763,9 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_verify_termination_after_uncertain_outcome(self, session_id: int) -> bool:
         """Confirm a sent termination after HTS recovers; never resend it."""
+        await self._maybe_restart_hts()
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
-            await self._maybe_restart_hts()
             hts_client = self._hts_client
             if hts_client is not None and hts_client.is_connected:
                 try:
@@ -775,6 +775,11 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         "Termination outcome is unknown because its read-only verification failed; "
                         "do not retry automatically."
                     ) from exc
+                if not sessions:
+                    raise HtsConnectionError(
+                        "Termination outcome is unknown because its read-only verification "
+                        "returned no sessions; do not retry automatically."
+                    )
                 return all(session.session_id != session_id for session in sessions)
             await asyncio.sleep(0.1)
         raise HtsConnectionError(
