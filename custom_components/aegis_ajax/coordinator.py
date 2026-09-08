@@ -772,7 +772,18 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_verify_termination_after_uncertain_outcome(
         self, session_id: int, expected_active_session_ids: set[int]
     ) -> bool:
-        """Confirm a sent termination after HTS recovers; never resend it."""
+        """Confirm a sent termination after HTS recovers; never resend it.
+
+        Absence is only evidence when the read that reports it is complete, so
+        every session Ajax listed immediately before the request has to come
+        back, and no record may arrive unidentifiable. `_parse_client_sessions`
+        deliberately tolerates a damaged payload rather than failing this
+        read-only path — it drops a trailing incomplete record, and decodes a
+        creation timestamp only when the value is exactly eight bytes long —
+        which means a clipped response can lose a whole record or keep one
+        while losing its ID. Both are likeliest in the seconds after the
+        connection drop that made the outcome uncertain in the first place.
+        """
         await self._maybe_restart_hts()
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
@@ -789,6 +800,12 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     raise HtsConnectionError(
                         "Termination outcome is unknown because its read-only verification "
                         "returned no sessions; do not retry automatically."
+                    )
+                if any(session.session_id is None for session in sessions):
+                    raise HtsConnectionError(
+                        "Termination outcome is unknown because its read-only verification "
+                        "returned a session whose ID could not be decoded; "
+                        "do not retry automatically."
                     )
                 verified_session_ids = {
                     session.session_id for session in sessions if session.session_id is not None
