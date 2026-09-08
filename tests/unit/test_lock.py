@@ -16,15 +16,17 @@ from custom_components.aegis_ajax.const import (
     DeviceState,
     SecurityState,
 )
-from custom_components.aegis_ajax.lock import LOCK_DEVICE_TYPES, AjaxLock
+from custom_components.aegis_ajax.lock import AjaxLock, async_setup_entry
 
 
-def _make_device(device_type: str, smart_lock_state: str | None = None) -> Device:
+def _make_device(
+    device_type: str, smart_lock_state: str | None = None, *, device_id: str = "lock-1"
+) -> Device:
     statuses: dict = {}
     if smart_lock_state is not None:
         statuses["smart_lock_state"] = smart_lock_state
     return Device(
-        id="lock-1",
+        id=device_id,
         hub_id="hub-1",
         name="Front Door Lock",
         device_type=device_type,
@@ -61,14 +63,6 @@ def _make_coordinator(device: Device) -> MagicMock:
     coordinator.devices_api.send_command = AsyncMock()
     coordinator.async_request_refresh = AsyncMock()
     return coordinator
-
-
-class TestLockDeviceTypes:
-    def test_smart_lock_in_lock_types(self) -> None:
-        assert "smart_lock" in LOCK_DEVICE_TYPES
-
-    def test_smart_lock_yale_in_lock_types(self) -> None:
-        assert "smart_lock_yale" in LOCK_DEVICE_TYPES
 
 
 class TestAjaxLockState:
@@ -121,6 +115,22 @@ class TestAjaxLockState:
         coordinator = _make_coordinator(device)
         lock = AjaxLock(coordinator=coordinator, device_id=device.id)
         assert lock.available is False
+
+
+class TestLockSetup:
+    @pytest.mark.asyncio
+    async def test_setup_adds_only_registered_lock_capabilities(self) -> None:
+        lock_device = _make_device("smart_lock")
+        coordinator = _make_coordinator(lock_device)
+        door_device = _make_device("door_protect", device_id="door-1")
+        coordinator.devices[door_device.id] = door_device
+        async_add_entities = MagicMock()
+        entry = MagicMock(runtime_data=coordinator)
+
+        await async_setup_entry(MagicMock(), entry, async_add_entities)
+
+        entities = async_add_entities.call_args.args[0]
+        assert [entity._device_id for entity in entities] == [lock_device.id]
 
 
 class TestAjaxLockCommands:

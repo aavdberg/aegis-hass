@@ -79,6 +79,7 @@ from custom_components.aegis_ajax.delay_states import (
     parse_arm_delays,
 )
 from custom_components.aegis_ajax.device_cache import DevicesCache
+from custom_components.aegis_ajax.device_handlers import capabilities_for
 from custom_components.aegis_ajax.entity import async_get_registered_device
 from custom_components.aegis_ajax.repairs import (
     async_clear_hts_chronic_failure,
@@ -396,11 +397,6 @@ def _without_hts_case_tamper(statuses: dict[str, Any]) -> dict[str, Any]:
         remaining.pop("tamper", None)
     return remaining
 
-
-# Mirror of `lock.LOCK_DEVICE_TYPES` (kept local to avoid a circular import
-# with the lock platform, which imports the coordinator). Used only by the
-# one-shot #206 Bug-B SmartLock id probe.
-_LOCK_DEVICE_TYPES: frozenset[str] = frozenset({"smart_lock", "smart_lock_yale"})
 
 # HTS `type=0x08` Chime-event state byte → ChimeStatus (#239). The hub stamps
 # the new chime state into params[3] of the event frame the instant the chime
@@ -1506,7 +1502,7 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._smart_lock_probe_done = True
         lock_ids_by_space: dict[str, list[str]] = {}
         for device in self.devices.values():
-            if device.device_type not in _LOCK_DEVICE_TYPES:
+            if not capabilities_for(device).is_lock:
                 continue
             space_id = next((s.id for s in self.spaces.values() if s.hub_id == device.hub_id), None)
             if space_id:

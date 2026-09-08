@@ -14,6 +14,7 @@ class DeviceCapabilities:
     """Capabilities provided by a device family."""
 
     binary_sensor_keys: tuple[str, ...] = ()
+    is_lock: bool = False
 
 
 class DeviceHandler(Protocol):
@@ -29,9 +30,17 @@ class DeviceHandler(Protocol):
 class StaticDeviceHandler:
     """Handler returning static capabilities for a set of device types."""
 
-    def __init__(self, device_types: tuple[str, ...], binary_sensor_keys: tuple[str, ...]) -> None:
+    def __init__(
+        self,
+        device_types: tuple[str, ...],
+        binary_sensor_keys: tuple[str, ...],
+        *,
+        is_lock: bool = False,
+    ) -> None:
         self.device_types = frozenset(device_types)
-        self._capabilities = DeviceCapabilities(binary_sensor_keys=binary_sensor_keys)
+        self._capabilities = DeviceCapabilities(
+            binary_sensor_keys=binary_sensor_keys, is_lock=is_lock
+        )
 
     def capabilities(self, device: Device) -> DeviceCapabilities:
         """Return static capabilities for this device family."""
@@ -247,6 +256,12 @@ _HANDLERS: tuple[DeviceHandler, ...] = (
     StaticDeviceHandler(
         ("range_extender_2_fire",),
         ("smoke_detected", "high_temperature", "tamper"),
+    ),
+    # SmartLock / LockBridge
+    StaticDeviceHandler(
+        ("smart_lock", "smart_lock_yale"),
+        ("tamper",),
+        is_lock=True,
     ),
     # Wired inputs
     StaticDeviceHandler(

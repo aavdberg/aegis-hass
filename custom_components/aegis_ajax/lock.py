@@ -15,6 +15,7 @@ from custom_components.aegis_ajax.api.devices import (
 )
 from custom_components.aegis_ajax.api.models import DeviceCommand
 from custom_components.aegis_ajax.coordinator import AjaxCobrandedCoordinator
+from custom_components.aegis_ajax.device_handlers import capabilities_for
 from custom_components.aegis_ajax.entity import build_device_info
 
 if TYPE_CHECKING:
@@ -26,13 +27,6 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# Ajax catalog ships two SmartLock device-type buckets — `smart_lock` for
-# generic LockBridge integrations and `smart_lock_yale` for Yale-branded
-# locks. Both expose the same status oneof, so they share a single entity
-# class. Lock/unlock is driven through the generic device on/off command
-# (see `_async_switch`), unlatch through SwitchSmartLockService.
-LOCK_DEVICE_TYPES: frozenset[str] = frozenset({"smart_lock", "smart_lock_yale"})
-
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
@@ -40,7 +34,7 @@ async def async_setup_entry(
     coordinator: AjaxCobrandedCoordinator = entry.runtime_data
     entities: list[AjaxLock] = []
     for device_id, device in coordinator.devices.items():
-        if device.device_type in LOCK_DEVICE_TYPES:
+        if capabilities_for(device).is_lock:
             entities.append(AjaxLock(coordinator=coordinator, device_id=device_id))
     async_add_entities(entities)
 
