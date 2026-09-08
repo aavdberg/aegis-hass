@@ -793,10 +793,12 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 verified_session_ids = {
                     session.session_id for session in sessions if session.session_id is not None
                 }
-                if not expected_active_session_ids <= verified_session_ids:
+                missing_session_ids = expected_active_session_ids - verified_session_ids
+                if missing_session_ids:
                     raise HtsConnectionError(
                         "Termination outcome is unknown because its read-only verification "
-                        "omitted a previously active session; do not retry automatically."
+                        "omitted previously active session ID(s) "
+                        f"{sorted(missing_session_ids)}; do not retry automatically."
                     )
                 return session_id not in verified_session_ids
             await asyncio.sleep(0.1)

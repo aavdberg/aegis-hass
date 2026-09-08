@@ -320,7 +320,10 @@ class TestClientSessionServices:
         coordinator._hts_client.get_client_sessions = AsyncMock(return_value=[self._session(1)])
         coordinator._maybe_restart_hts = AsyncMock()
 
-        with pytest.raises(HtsConnectionError, match="omitted a previously active session"):
+        with pytest.raises(
+            HtsConnectionError,
+            match=r"omitted previously active session ID\(s\) \[3\]",
+        ):
             await coordinator._async_verify_termination_after_uncertain_outcome(2, {1, 3})
         coordinator._hts_client.get_client_sessions.assert_awaited_once()
 
