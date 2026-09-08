@@ -311,6 +311,29 @@ class TestClientSessionServices:
         coordinator._hts_client.get_client_sessions.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_uncertain_outcome_undecodable_session_id_is_unknown(self) -> None:
+        """A record whose 0x01 did not decode cannot prove the target is gone.
+
+        `timestamp()` yields None unless the value is exactly eight bytes, so a
+        response clipped inside the target's own creation timestamp comes back
+        with the target's record present and unidentifiable — which the absence
+        check would otherwise read as a successful termination.
+        """
+        from custom_components.aegis_ajax.api.hts.client import HtsConnectionError
+        from custom_components.aegis_ajax.coordinator import AjaxCobrandedCoordinator
+
+        coordinator = object.__new__(AjaxCobrandedCoordinator)
+        coordinator._hts_client = MagicMock(is_connected=True)
+        coordinator._hts_client.get_client_sessions = AsyncMock(
+            return_value=[self._session(1), self._session(3), self._session(None)]
+        )
+        coordinator._maybe_restart_hts = AsyncMock()
+
+        with pytest.raises(HtsConnectionError, match="could not be decoded"):
+            await coordinator._async_verify_termination_after_uncertain_outcome(2, {1, 3})
+        coordinator._hts_client.get_client_sessions.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_uncertain_outcome_truncated_verification_is_unknown(self) -> None:
         from custom_components.aegis_ajax.api.hts.client import HtsConnectionError
         from custom_components.aegis_ajax.coordinator import AjaxCobrandedCoordinator
