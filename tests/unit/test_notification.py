@@ -864,9 +864,7 @@ class TestFcmRejectedCredsShortCircuit:
     async def test_terminal_failure_persists_rejected_hash(self) -> None:
         hass = MagicMock()
         hass.async_add_executor_job = AsyncMock(
-            side_effect=RuntimeError(
-                "Unable to establish subscription with Google Cloud Messaging."
-            )
+            side_effect=RuntimeError("Unable to register with fcm")
         )
         listener = self._listener(hass)
         register_cls = MagicMock(return_value=MagicMock(register=MagicMock()))
@@ -884,6 +882,40 @@ class TestFcmRejectedCredsShortCircuit:
         listener._rejected_store.async_save.assert_awaited_once_with(
             {"hash": self._expected_hash()}
         )
+
+    @pytest.mark.asyncio
+    async def test_gcm_register_failure_does_not_persist_rejected_hash(self) -> None:
+        """#464 — the GCM register step does not carry the four values, so its
+        failure must stay retryable on the next restart / reload instead of
+        being remembered as a credential rejection. wip3out3r's install hit
+        PHONE_REGISTRATION_ERROR twice, 1 s apart, right after the #458
+        migration forced a re-registration; the same four values registered
+        fine 11m40s later once the marker was deleted by hand."""
+        hass = MagicMock()
+        hass.async_add_executor_job = AsyncMock(
+            side_effect=RuntimeError(
+                "Unable to establish subscription with Google Cloud Messaging."
+            )
+        )
+        listener = self._listener(hass)
+        register_cls = MagicMock(return_value=MagicMock(register=MagicMock()))
+
+        reg_inv, clr_inv, reg_miss, clr_miss = self._repair_patches()
+        with (
+            reg_inv as reg,
+            clr_inv,
+            reg_miss,
+            clr_miss,
+            patch("firebase_messaging.fcmregister.FcmRegister", register_cls),
+        ):
+            await listener.async_start()
+
+        # The attempt was made and failed…
+        register_cls.assert_called_once()
+        # …the user is still told push is off…
+        reg.assert_called_once_with(hass, entry_id="entry-x")
+        # …but nothing is latched: the next start retries.
+        listener._rejected_store.async_save.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_transient_failure_does_not_persist(self) -> None:
@@ -978,6 +1010,78 @@ class TestFcmRejectedCredsShortCircuit:
             await listener.async_start()
 
         listener._rejected_store.async_remove.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_missing_fingerprint_is_reported_as_the_one_time_migration(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """#464 (side note) — a cache with no `creds_hash` is the pre-1.19.0
+        shape every upgrading install has once. Telling that user their
+        credential set is "different" is wrong and alarming; say what it is."""
+        hass = MagicMock()
+        hass.async_add_executor_job = AsyncMock(
+            return_value={"fcm": {"registration": {"token": "fresh"}}}
+        )
+        listener = self._listener(hass)
+        listener._store.async_load = AsyncMock(
+            return_value={"fcm": {"registration": {"token": "pre-1.19"}}}
+        )
+        listener._store.async_save = AsyncMock()
+        listener._register_push_token = AsyncMock()
+
+        reg_inv, clr_inv, reg_miss, clr_miss = self._repair_patches()
+        with (
+            reg_inv,
+            clr_inv,
+            reg_miss,
+            clr_miss,
+            patch(
+                "firebase_messaging.fcmregister.FcmRegister",
+                MagicMock(return_value=MagicMock(register=MagicMock())),
+            ),
+            patch("firebase_messaging.FcmPushClient", MagicMock()),
+            caplog.at_level(logging.INFO, logger="custom_components.aegis_ajax.notification"),
+        ):
+            await listener.async_start()
+
+        assert "no credential fingerprint" in caplog.text
+        assert "different credential set" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_changed_fingerprint_is_still_reported_as_a_different_set(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        hass = MagicMock()
+        hass.async_add_executor_job = AsyncMock(
+            return_value={"fcm": {"registration": {"token": "fresh"}}}
+        )
+        listener = self._listener(hass)
+        listener._store.async_load = AsyncMock(
+            return_value={
+                "fcm": {"registration": {"token": "old"}},
+                "creds_hash": "made-with-other-values",
+            }
+        )
+        listener._store.async_save = AsyncMock()
+        listener._register_push_token = AsyncMock()
+
+        reg_inv, clr_inv, reg_miss, clr_miss = self._repair_patches()
+        with (
+            reg_inv,
+            clr_inv,
+            reg_miss,
+            clr_miss,
+            patch(
+                "firebase_messaging.fcmregister.FcmRegister",
+                MagicMock(return_value=MagicMock(register=MagicMock())),
+            ),
+            patch("firebase_messaging.FcmPushClient", MagicMock()),
+            caplog.at_level(logging.INFO, logger="custom_components.aegis_ajax.notification"),
+        ):
+            await listener.async_start()
+
+        assert "different credential set" in caplog.text
+        assert "no credential fingerprint" not in caplog.text
 
     @pytest.mark.asyncio
     async def test_reregisters_when_stored_credentials_lack_token(self) -> None:
@@ -1171,13 +1275,28 @@ class TestFcmCacheFingerprinting:
 
 
 class TestIsTerminalFcmFailure:
-    def test_credential_rejection_strings_are_terminal(self) -> None:
+    def test_firebase_installations_rejection_is_terminal(self) -> None:
+        # The Firebase Installations request is the one that carries the
+        # api-key, so a refusal there IS a verdict on the credentials (#182,
+        # #227) and stays latched until the values change.
         from custom_components.aegis_ajax.notification import _is_terminal_fcm_failure
 
-        assert _is_terminal_fcm_failure(
+        assert _is_terminal_fcm_failure(RuntimeError("Unable to register with fcm"))
+
+    def test_gcm_register_failure_is_not_terminal(self) -> None:
+        # #464: `register()` raises this string whenever `gcm_register()` gives
+        # up after its two tries. That request carries the library's default
+        # bundle_id, the android_id from check-in and the library's own
+        # constant server key — none of the four user values, which are only
+        # used afterwards in `fcm_install_and_register`. A failure there can
+        # never be a credential verdict, and on the reporter's install the
+        # identical values succeeded 12 minutes later untouched. Latching it
+        # made push unrecoverable without deleting a file by hand.
+        from custom_components.aegis_ajax.notification import _is_terminal_fcm_failure
+
+        assert not _is_terminal_fcm_failure(
             RuntimeError("Unable to establish subscription with Google Cloud Messaging.")
         )
-        assert _is_terminal_fcm_failure(RuntimeError("Unable to register with fcm"))
 
     def test_network_and_unknown_are_not_terminal(self) -> None:
         from custom_components.aegis_ajax.notification import _is_terminal_fcm_failure
@@ -1560,18 +1679,23 @@ class TestClassifyFcmFailure:
     guaranteed to be the ones the listener observes in production.
     """
 
-    def test_gcm_subscription_rejection_points_at_project_consistency(self) -> None:
-        # Probe result: emitted for ANY credential-set error (bad sender_id,
-        # api_key with or without AIza prefix, project_id, app_id with valid
-        # shape). Hansontech190's case (#131) lands here. Message must steer
-        # the user toward checking the four-value consistency, not toward
-        # extraction internals (no APK / cobrand / .so wording).
+    def test_gcm_register_failure_is_not_presented_as_a_credential_verdict(self) -> None:
+        # #464: the GCM register request carries none of the four values (read
+        # from `fcmregister.gcm_register`: default bundle_id, check-in
+        # android_id, the library's constant server key), so telling the user
+        # Google "rejected" their credentials and to re-enter all four was
+        # wrong — and, with the marker latched, sent them into a loop where
+        # the prescribed remedy could not work. The message must say which
+        # step failed, that it is not about the values, and that it is retried
+        # on the next restart / reload. Still no extraction internals.
         msg = _classify_fcm_failure(
             RuntimeError("Unable to establish subscription with Google Cloud Messaging.")
         )
-        assert "rejected by Google" in msg
-        assert "same Firebase project" in msg
-        assert "fcm_sender_id" in msg and "fcm_app_id" in msg and "fcm_project_id" in msg
+        assert "rejected by Google" not in msg
+        assert "GCM registration step" in msg
+        assert "none of the four" in msg
+        assert "restart or reload" in msg
+        assert "Repair card" in msg
         for forbidden in ("APK", "cobrand", "libnative", "strings.xml"):
             assert forbidden not in msg
 

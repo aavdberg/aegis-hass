@@ -23,8 +23,13 @@ from homeassistant.helpers.selector import (
     TextSelectorConfig,
     TextSelectorType,
 )
+from homeassistant.helpers.storage import Store
 
-from custom_components.aegis_ajax.const import DOMAIN
+from custom_components.aegis_ajax.const import (
+    DOMAIN,
+    FCM_REJECTED_STORAGE_KEY,
+    FCM_STORAGE_VERSION,
+)
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -298,6 +303,14 @@ class FcmCredentialsRepairFlow(RepairsFlow):
     reloads — which kicks `notification.async_start()` and either
     re-raises the repair (creds still wrong) or clears it (creds work
     now).
+
+    Submitting also clears the `fcm_rejected` marker (#464). Without that,
+    a user who re-submits the same values — the form pre-fills them — gets
+    the same fingerprint and the same short-circuit in `async_start`, so the
+    registration is never attempted and the marker is never reached to be
+    removed: the remedy the warning prescribes could not undo the state it
+    reports. Submitting the card is the user asking for a retry, and it is a
+    single bounded attempt, so it is always honoured.
     """
 
     def __init__(self, entry_id: str) -> None:
@@ -311,6 +324,9 @@ class FcmCredentialsRepairFlow(RepairsFlow):
                 # the user clicking Submit. Nothing to fix.
                 return self.async_abort(reason="entry_missing")
             self.hass.config_entries.async_update_entry(entry, data={**entry.data, **user_input})
+            # Drop the rejection marker BEFORE the reload runs the
+            # registration, or an unchanged set short-circuits it (#464).
+            await Store(self.hass, FCM_STORAGE_VERSION, FCM_REJECTED_STORAGE_KEY).async_remove()
             await self.hass.config_entries.async_reload(self._entry_id)
             return self.async_create_entry(data={})
 

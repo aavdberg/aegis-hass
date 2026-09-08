@@ -3,6 +3,15 @@
 from enum import IntEnum, StrEnum
 
 DOMAIN = "aegis_ajax"
+
+# FCM rejection marker (#227, #464). Records the SHA-256 fingerprint of the
+# most recent credential set that Firebase Installations terminally rejected,
+# so the integration does not re-hit the Firebase project on every restart
+# with a key it already knows is wrong. Lives here because two modules that
+# must not import each other need it: `notification.py` writes and reads it,
+# `repairs.py` clears it when the user re-submits the Repair card (#464).
+FCM_STORAGE_VERSION = 1
+FCM_REJECTED_STORAGE_KEY = f"{DOMAIN}_fcm_rejected"
 MANUFACTURER = "Ajax Systems"
 
 # Labels for automatic entity categorization

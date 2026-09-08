@@ -225,16 +225,26 @@ def _is_terminal_fcm_failure(exc: BaseException) -> bool:
     """True when an FCM registration error is a Google credential rejection
     (won't change on retry), False for transient / host-unreachable errors.
 
-    Mirrors the `_classify_fcm_failure` taxonomy: the two credential-rejection
-    strings are terminal; "unable to register and check in to gcm" is the
-    FCM-hosts-unreachable case (DNS / firewall / proxy) and must stay
-    retryable. Unknown errors default to NOT terminal, so a transient blip is
-    never mistaken for a permanently-bad credential set (which would suppress
-    a legitimate retry until the user re-enters the values).
+    Only "Unable to register with fcm" is terminal: it is raised when Firebase
+    Installations refuses the request, and that request is the one that
+    carries the api-key (#182, #227), so a refusal there is a verdict on the
+    values.
+
+    "Unable to establish subscription with Google Cloud Messaging." is NOT
+    terminal (#464). `FcmRegister.register()` raises it whenever
+    `gcm_register()` gives up after its two tries, and that request carries
+    the library's default bundle_id, the android_id from check-in and the
+    library's own constant server key — none of the four user values, which
+    are only used afterwards in `fcm_install_and_register`. It cannot be a
+    credential verdict, and in the field it was a transient
+    `PHONE_REGISTRATION_ERROR` that cleared on a later attempt with the same
+    values. Latching it left push permanently off with no way back through
+    the Repair card. "Unable to register and check in to gcm" is the
+    FCM-hosts-unreachable case (DNS / firewall / proxy) and stays retryable
+    too. Unknown errors default to NOT terminal, so a transient blip is never
+    mistaken for a permanently-bad credential set.
     """
     lower = (str(exc) if exc else "").lower()
-    if "subscription" in lower and "google cloud messaging" in lower:
-        return True
     return "unable to register with fcm" in lower
 
 
@@ -246,13 +256,18 @@ def _classify_fcm_failure(exc: BaseException) -> str:
     internal `_logger` calls — so `__cause__` / `__context__` are always None
     and the only signal we get is the literal `str(exc)`.
 
-    The three branches below were measured empirically (probe against real FCM
-    endpoints with deliberate credential corruptions + a DNS block of the FCM
-    hosts), not inferred from the source:
+    The three branches below were first measured empirically (probe against
+    real FCM endpoints with deliberate credential corruptions + a DNS block of
+    the FCM hosts); the first one was then corrected from the library source
+    after #464:
 
       * "Unable to establish subscription with Google Cloud Messaging."
-        — dominant failure mode for any credential-set error (bad sender_id,
-        api_key, project_id, or app_id with valid shape).
+        — raised when `gcm_register()` gives up after two tries. That request
+        carries none of the four user values (default bundle_id, check-in
+        android_id, the library's constant server key), so it is NOT a
+        credential verdict whatever the probe once suggested; in the field it
+        was a transient `PHONE_REGISTRATION_ERROR` that cleared on a later
+        attempt with the same values (#464).
 
       * "Unable to register with fcm"
         — fires when Firebase Installations returns HTTP 403
@@ -270,11 +285,11 @@ def _classify_fcm_failure(exc: BaseException) -> str:
 
     if "subscription" in lower and "google cloud messaging" in lower:
         return (
-            "FCM registration rejected by Google. The four credentials must all "
-            "come from the same Firebase project — fcm_sender_id must match the "
-            "numeric prefix inside fcm_app_id, and fcm_api_key must be paired "
-            "with that same fcm_project_id. Re-enter all four together via the "
-            "Repair card under Settings → Repairs."
+            "Google's GCM registration step failed before the FCM credentials "
+            "were used — that request carries none of the four values, so this "
+            "is not a verdict on them and is usually transient. It is retried "
+            "on the next restart or reload of the integration; submitting the "
+            "Repair card under Settings → Repairs retries it immediately."
         )
     if "unable to register with fcm" in lower:
         return (
