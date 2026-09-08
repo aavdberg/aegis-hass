@@ -720,7 +720,12 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             await hts_client.kill_client_sessions([session_id])
         except HtsTerminationOutcomeUnknownError:
-            if not await self._async_verify_termination_after_uncertain_outcome(session_id):
+            expected_active_session_ids = {
+                session.session_id for session in sessions if session.session_id is not None
+            } - {session_id}
+            if not await self._async_verify_termination_after_uncertain_outcome(
+                session_id, expected_active_session_ids
+            ):
                 raise HtsConnectionError(
                     "Ajax confirmed the session remains active after the termination request."
                 ) from None
@@ -747,7 +752,14 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             try:
                 terminated = await hts_client.kill_client_sessions(session_ids)
             except HtsTerminationOutcomeUnknownError as exc:
-                if not await self._async_verify_termination_after_uncertain_outcome(exc.session_id):
+                expected_active_session_ids = (
+                    {session.session_id for session in sessions if session.session_id is not None}
+                    - set(exc.succeeded_session_ids)
+                    - {exc.session_id}
+                )
+                if not await self._async_verify_termination_after_uncertain_outcome(
+                    exc.session_id, expected_active_session_ids
+                ):
                     raise HtsConnectionError(
                         f"Terminated {len(exc.succeeded_session_ids)} of "
                         f"{len(session_ids)} session(s); the uncertain session remains active."
@@ -757,7 +769,9 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return len(terminated)
         return 0
 
-    async def _async_verify_termination_after_uncertain_outcome(self, session_id: int) -> bool:
+    async def _async_verify_termination_after_uncertain_outcome(
+        self, session_id: int, expected_active_session_ids: set[int]
+    ) -> bool:
         """Confirm a sent termination after HTS recovers; never resend it."""
         await self._maybe_restart_hts()
         deadline = time.monotonic() + 30
@@ -776,7 +790,17 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         "Termination outcome is unknown because its read-only verification "
                         "returned no sessions; do not retry automatically."
                     )
-                return all(session.session_id != session_id for session in sessions)
+                verified_session_ids = {
+                    session.session_id for session in sessions if session.session_id is not None
+                }
+                missing_session_ids = expected_active_session_ids - verified_session_ids
+                if missing_session_ids:
+                    raise HtsConnectionError(
+                        "Termination outcome is unknown because its read-only verification "
+                        "omitted previously active session ID(s) "
+                        f"{sorted(missing_session_ids)}; do not retry automatically."
+                    )
+                return session_id not in verified_session_ids
             await asyncio.sleep(0.1)
         raise HtsConnectionError(
             "Termination outcome is unknown because HTS did not reconnect for verification; "

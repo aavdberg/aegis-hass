@@ -184,7 +184,9 @@ class TestClientSessionServices:
 
         coordinator = object.__new__(AjaxCobrandedCoordinator)
         coordinator._hts_client = MagicMock(is_connected=True)
-        coordinator._hts_client.get_client_sessions = AsyncMock(return_value=[self._session(2)])
+        coordinator._hts_client.get_client_sessions = AsyncMock(
+            return_value=[self._session(1), self._session(2)]
+        )
         coordinator._hts_client.kill_client_sessions = AsyncMock(
             side_effect=HtsTerminationOutcomeUnknownError(2)
         )
@@ -193,7 +195,9 @@ class TestClientSessionServices:
         await coordinator.async_terminate_client_session(2)
 
         coordinator._hts_client.kill_client_sessions.assert_awaited_once_with([2])
-        coordinator._async_verify_termination_after_uncertain_outcome.assert_awaited_once_with(2)
+        coordinator._async_verify_termination_after_uncertain_outcome.assert_awaited_once_with(
+            2, {1}
+        )
 
     @pytest.mark.asyncio
     async def test_uncertain_bulk_termination_counts_verified_final_session(self) -> None:
@@ -212,7 +216,9 @@ class TestClientSessionServices:
 
         assert await coordinator.async_terminate_other_client_sessions() == 2
         coordinator._hts_client.kill_client_sessions.assert_awaited_once_with([2, 3])
-        coordinator._async_verify_termination_after_uncertain_outcome.assert_awaited_once_with(3)
+        coordinator._async_verify_termination_after_uncertain_outcome.assert_awaited_once_with(
+            3, {1}
+        )
 
     @pytest.mark.asyncio
     async def test_uncertain_termination_remaining_session_reports_confirmed_failure(self) -> None:
@@ -249,7 +255,7 @@ class TestClientSessionServices:
 
         coordinator._maybe_restart_hts = AsyncMock(side_effect=reconnect)
 
-        assert await coordinator._async_verify_termination_after_uncertain_outcome(2) is True
+        assert await coordinator._async_verify_termination_after_uncertain_outcome(2, {1}) is True
         coordinator._maybe_restart_hts.assert_awaited_once()
         coordinator._hts_client.get_client_sessions.assert_awaited_once()
 
@@ -266,7 +272,7 @@ class TestClientSessionServices:
         coordinator._maybe_restart_hts = AsyncMock()
 
         with pytest.raises(HtsConnectionError, match="outcome is unknown"):
-            await coordinator._async_verify_termination_after_uncertain_outcome(2)
+            await coordinator._async_verify_termination_after_uncertain_outcome(2, set())
         coordinator._hts_client.get_client_sessions.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -286,7 +292,7 @@ class TestClientSessionServices:
             ),
             pytest.raises(HtsConnectionError, match="did not reconnect"),
         ):
-            await coordinator._async_verify_termination_after_uncertain_outcome(2)
+            await coordinator._async_verify_termination_after_uncertain_outcome(2, set())
 
         coordinator._maybe_restart_hts.assert_awaited_once()
 
@@ -301,7 +307,24 @@ class TestClientSessionServices:
         coordinator._maybe_restart_hts = AsyncMock()
 
         with pytest.raises(HtsConnectionError, match="outcome is unknown"):
-            await coordinator._async_verify_termination_after_uncertain_outcome(2)
+            await coordinator._async_verify_termination_after_uncertain_outcome(2, set())
+        coordinator._hts_client.get_client_sessions.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_uncertain_outcome_truncated_verification_is_unknown(self) -> None:
+        from custom_components.aegis_ajax.api.hts.client import HtsConnectionError
+        from custom_components.aegis_ajax.coordinator import AjaxCobrandedCoordinator
+
+        coordinator = object.__new__(AjaxCobrandedCoordinator)
+        coordinator._hts_client = MagicMock(is_connected=True)
+        coordinator._hts_client.get_client_sessions = AsyncMock(return_value=[self._session(1)])
+        coordinator._maybe_restart_hts = AsyncMock()
+
+        with pytest.raises(
+            HtsConnectionError,
+            match=r"omitted previously active session ID\(s\) \[3\]",
+        ):
+            await coordinator._async_verify_termination_after_uncertain_outcome(2, {1, 3})
         coordinator._hts_client.get_client_sessions.assert_awaited_once()
 
     @pytest.mark.asyncio
