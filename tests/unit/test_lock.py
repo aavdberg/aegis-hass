@@ -19,12 +19,14 @@ from custom_components.aegis_ajax.const import (
 from custom_components.aegis_ajax.lock import AjaxLock, async_setup_entry
 
 
-def _make_device(device_type: str, smart_lock_state: str | None = None) -> Device:
+def _make_device(
+    device_type: str, smart_lock_state: str | None = None, *, device_id: str = "lock-1"
+) -> Device:
     statuses: dict = {}
     if smart_lock_state is not None:
         statuses["smart_lock_state"] = smart_lock_state
     return Device(
-        id="lock-1",
+        id=device_id,
         hub_id="hub-1",
         name="Front Door Lock",
         device_type=device_type,
@@ -120,7 +122,8 @@ class TestLockSetup:
     async def test_setup_adds_only_registered_lock_capabilities(self) -> None:
         lock_device = _make_device("smart_lock")
         coordinator = _make_coordinator(lock_device)
-        coordinator.devices["door-1"] = _make_device("door_protect")
+        door_device = _make_device("door_protect", device_id="door-1")
+        coordinator.devices[door_device.id] = door_device
         async_add_entities = MagicMock()
         entry = MagicMock(runtime_data=coordinator)
 
