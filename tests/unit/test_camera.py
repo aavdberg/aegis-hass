@@ -26,45 +26,45 @@ def _stub_camera_module() -> None:
 
 _stub_camera_module()
 
-from custom_components.aegis_ajax.camera import (  # noqa: E402
-    CAMERA_DEVICE_TYPES,
-    PHOD_DEVICE_TYPES,
-    AjaxCamera,
-)
+from custom_components.aegis_ajax.api.models import Device  # noqa: E402
+from custom_components.aegis_ajax.camera import AjaxCamera  # noqa: E402
+from custom_components.aegis_ajax.const import DeviceState  # noqa: E402
 
 
-class TestCameraDeviceTypes:
-    def test_motion_cam_phod_is_camera(self) -> None:
-        assert "motion_cam_phod" in CAMERA_DEVICE_TYPES
+def _device(device_id: str, device_type: str) -> Device:
+    return Device(
+        id=device_id,
+        hub_id="hub-1",
+        name="Camera",
+        device_type=device_type,
+        room_id=None,
+        group_id=None,
+        state=DeviceState.ONLINE,
+        malfunctions=0,
+        bypassed=False,
+        statuses={},
+        battery=None,
+    )
 
-    def test_motion_cam_is_camera(self) -> None:
-        assert "motion_cam" in CAMERA_DEVICE_TYPES
 
-    def test_motion_cam_outdoor_is_camera(self) -> None:
-        assert "motion_cam_outdoor" in CAMERA_DEVICE_TYPES
+class TestCameraSetup:
+    @pytest.mark.asyncio
+    async def test_setup_adds_only_camera_capability(self) -> None:
+        from custom_components.aegis_ajax.camera import async_setup_entry
 
-    def test_motion_cam_fibra_is_camera(self) -> None:
-        assert "motion_cam_fibra" in CAMERA_DEVICE_TYPES
+        coordinator = MagicMock()
+        coordinator.devices = {
+            "camera": _device("camera", "motion_cam"),
+            "not-camera": _device("not-camera", "motion_cam_g3"),
+        }
+        coordinator.rooms = {}
+        coordinator.hub_registry_id.return_value = None
+        entry = MagicMock(runtime_data=coordinator)
+        added: list[object] = []
 
+        await async_setup_entry(MagicMock(), entry, added.extend)
 
-class TestPhodDeviceTypes:
-    def test_motion_cam_phod_is_phod(self) -> None:
-        assert "motion_cam_phod" in PHOD_DEVICE_TYPES
-
-    def test_motion_cam_outdoor_phod_is_phod(self) -> None:
-        assert "motion_cam_outdoor_phod" in PHOD_DEVICE_TYPES
-
-    def test_motion_cam_fibra_base_is_phod(self) -> None:
-        assert "motion_cam_fibra_base" in PHOD_DEVICE_TYPES
-
-    def test_regular_motion_cam_is_not_phod(self) -> None:
-        assert "motion_cam" not in PHOD_DEVICE_TYPES
-
-    def test_motion_cam_outdoor_is_not_phod(self) -> None:
-        assert "motion_cam_outdoor" not in PHOD_DEVICE_TYPES
-
-    def test_phod_types_are_subset_of_camera_types(self) -> None:
-        assert PHOD_DEVICE_TYPES.issubset(CAMERA_DEVICE_TYPES)
+        assert [entity.unique_id for entity in added] == ["aegis_ajax_camera_camera"]
 
 
 class TestAjaxCamera:

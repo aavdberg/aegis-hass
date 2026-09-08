@@ -154,6 +154,50 @@ class TestRefreshHubButtonSetup:
         assert not any(isinstance(e, AjaxRefreshHubButton) for e in added)
 
 
+class TestCapturePhotoButtonSetup:
+    @pytest.mark.asyncio
+    async def test_setup_adds_only_phod_capability(self) -> None:
+        from custom_components.aegis_ajax.button import async_setup_entry
+
+        coordinator = _make_coordinator()
+        coordinator.devices = {
+            "phod": Device(
+                id="phod",
+                hub_id="hub-1",
+                name="PhOD",
+                device_type="motion_cam_phod",
+                room_id=None,
+                group_id=None,
+                state=DeviceState.ONLINE,
+                malfunctions=0,
+                bypassed=False,
+                statuses={},
+                battery=None,
+            ),
+            "not-phod": Device(
+                id="not-phod",
+                hub_id="hub-1",
+                name="Camera",
+                device_type="motion_cam",
+                room_id=None,
+                group_id=None,
+                state=DeviceState.ONLINE,
+                malfunctions=0,
+                bypassed=False,
+                statuses={},
+                battery=None,
+            ),
+        }
+        coordinator.rooms = {}
+        coordinator.spaces = {}
+        entry = MagicMock(runtime_data=coordinator)
+        added: list[object] = []
+
+        await async_setup_entry(MagicMock(), entry, added.extend)
+
+        assert [entity.unique_id for entity in added] == ["aegis_ajax_phod_capture_photo"]
+
+
 class TestRefreshHubButtonPress:
     """Pressing the button dispatches through the coordinator guard."""
 

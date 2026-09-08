@@ -10,9 +10,9 @@ from homeassistant.const import EntityCategory
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from custom_components.aegis_ajax.camera import PHOD_DEVICE_TYPES
 from custom_components.aegis_ajax.const import DOMAIN
 from custom_components.aegis_ajax.coordinator import AjaxCobrandedCoordinator
+from custom_components.aegis_ajax.device_handlers import capabilities_for
 from custom_components.aegis_ajax.entity import build_device_info
 
 if TYPE_CHECKING:
@@ -35,7 +35,7 @@ async def async_setup_entry(
             device_type=device.device_type,
         )
         for device_id, device in coordinator.devices.items()
-        if device.device_type in PHOD_DEVICE_TYPES
+        if capabilities_for(device).is_phod
     ]
     # One refresh button per hub — bridges the gap between the 60s
     # periodic STATUS_BODY refresh and the user wanting a fresh reading
