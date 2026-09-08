@@ -5,7 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.19.0] - unreleased
+## [1.19.0] - 2026-09-08
+
+Consolidates the `1.19.0-beta.1` → `beta.7` series, same bits as `beta.7`. The release is
+dominated by @aavdberg's work: seven of the ten changes are his, including the account-session
+management this version is built around and three steps of the device-handler refactor.
+
+Confirmed on real installs rather than inferred. Session listing was read repeatedly against a
+live account, and @aavdberg validated a real termination and its verification on his own. The
+three handler refactors were each checked with an entity-registry census before and after the
+swap — byte-identical both times, including the camera entities and photo-capture buttons whose
+identities the camera refactor could have changed silently, which is the one thing the
+characterization suite cannot prove. The repair-card translations were verified by asking a
+running Home Assistant what it serves, in German and Ukrainian. The credential-fingerprint
+migration has now run on three installs, one of which surfaced #464 in the process. Push delivery
+was proven on the release bits themselves with an arm and a disarm from the Ajax app: two pushes
+received, no duplicates, and the panel following each within about ten milliseconds rather than
+waiting for the poll.
+
+Three changes ship on unit-test evidence instead, deliberately, because their failure situations
+cannot be produced on demand: the verification of a session termination whose confirmation was
+lost needs the connection to drop between the frame going out and the reply arriving (#330);
+the retry of a transient Google registration failure needs that failure to recur, and the
+reporter was explicit that his upgrade reused its cached registration and therefore never
+exercised the corrected branch (#464); and the keyfob family byte was decoded from another
+user's captures on hardware nobody here owns (#460), where the widening is provably inert for
+every other family. All three stay open with the tell that would confirm them.
+
+No change in this release adds a periodic request to Ajax. The session actions run only when
+called — one list, plus one frame per terminated session, matching what the Ajax app sends from
+its own sessions screen — and the verification of an uncertain outcome adds a single read-only
+list on that path alone.
 
 ### Added
 - **Other devices can be signed out of the Ajax account from Home Assistant (#330, #447).** Two new actions complete the session management started in #441: `aegis_ajax.terminate_client_session` logs one selected device out, and `aegis_ajax.terminate_other_client_sessions` logs out every device except this one. Both require an explicit confirmation flag, and both refuse to touch any session carrying the integration's own client identity — not merely the one currently in use — because a stale copy of that identity would otherwise take Home Assistant's own session down with it and force a re-authentication on accounts with two-factor enabled. The list is re-read immediately before acting, so the refusal is checked against what Ajax holds now rather than what was on screen. A bulk call that stops part way reports how many sessions it did terminate, since the endpoint rate-limits and the frames already sent cannot be taken back. Found, decoded and built by @aavdberg. Adds requests to Ajax **only when an action is called**: one list plus one frame per terminated session, matching what the Ajax app sends from its own sessions screen.
