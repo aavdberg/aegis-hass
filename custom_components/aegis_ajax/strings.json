@@ -90,7 +90,8 @@
                     "bypass_switches": "Create device bypass switches",
                     "disable_push_warning": "I don't use push notifications",
                     "persistent_notifications": "Show security events as persistent notifications",
-                    "persistent_notification_events": "Events that create a persistent notification"
+                    "persistent_notification_events": "Events that create a persistent notification",
+                    "clear_fcm_credentials": "Delete FCM credentials (clears all four fields)"
                 },
                 "data_description": {
                     "bypass_switches": "Bypass switches let you deactivate a device before arming. 'Auto' creates them only if your Ajax account has permission to deactivate devices.",
@@ -190,17 +191,42 @@
             "name": "Terminate account session",
             "description": "Immediately log the selected other device out of the Ajax account. Obtain its session ID through list_client_sessions. The integration never terminates its own session.",
             "fields": {
-                "session_id": {"name": "Session ID", "description": "Session ID returned by list_client_sessions."},
-                "confirm": {"name": "Confirm termination", "description": "Must be true to immediately terminate the selected session."},
-                "entry_id": {"name": "Config entry ID", "description": "Required when more than one Aegis account is configured."}
+                "session_id": {
+                    "name": "Session ID",
+                    "description": "Session ID returned by list_client_sessions."
+                },
+                "confirm": {
+                    "name": "Confirm termination",
+                    "description": "Must be true to immediately terminate the selected session."
+                },
+                "entry_id": {
+                    "name": "Config entry ID",
+                    "description": "Required when more than one Aegis account is configured."
+                }
             }
         },
         "terminate_other_client_sessions": {
             "name": "Terminate all other account sessions",
             "description": "Immediately log all other devices out of the Ajax account. This signs out other active Ajax mobile and desktop apps. The integration never terminates its own session.",
             "fields": {
-                "confirm": {"name": "Confirm termination", "description": "Must be true to immediately terminate all other sessions."},
-                "entry_id": {"name": "Config entry ID", "description": "Required when more than one Aegis account is configured."}
+                "confirm": {
+                    "name": "Confirm termination",
+                    "description": "Must be true to immediately terminate all other sessions."
+                },
+                "entry_id": {
+                    "name": "Config entry ID",
+                    "description": "Required when more than one Aegis account is configured."
+                }
+            }
+        },
+        "disarm_night_mode": {
+            "name": "Disarm night mode",
+            "description": "Exit night mode while leaving any independently armed (away) groups armed. Unlike a full disarm, this only stands down the night-mode groups — the native Ajax \"disarm night mode\" operation.",
+            "fields": {
+                "entity_id": {
+                    "name": "Entity",
+                    "description": "Alarm panel entity for the space to disarm from night mode. If omitted, applies to all panels."
+                }
             }
         }
     },
@@ -449,6 +475,12 @@
             },
             "siren_on_any_tamper": {
                 "name": "Siren on tamper"
+            },
+            "tilt": {
+                "name": "Tilt"
+            },
+            "steam": {
+                "name": "Steam"
             }
         },
         "sensor": {
@@ -508,6 +540,12 @@
             },
             "channels_total": {
                 "name": "Channels total"
+            },
+            "voltage": {
+                "name": "Voltage"
+            },
+            "power": {
+                "name": "Power"
             }
         },
         "switch": {
@@ -538,6 +576,14 @@
                     "quiet": "Quiet",
                     "disabled": "Disabled"
                 }
+            }
+        },
+        "update": {
+            "hub_firmware": {
+                "name": "Firmware"
+            },
+            "device_firmware": {
+                "name": "Firmware"
             }
         }
     },

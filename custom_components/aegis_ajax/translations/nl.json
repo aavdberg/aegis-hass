@@ -190,10 +190,45 @@
         "list_client_sessions": {
             "name": "Accountsessies weergeven",
             "description": "Geeft actieve Ajax-accountsessies op verzoek terug voor handmatige inspectie. Deze service roept een intern Ajax-endpoint aan dat frequente verzoeken kan limiteren; gebruik deze niet voor periodieke opvraging in automatiseringen. De momenteel actieve Aegis-sessie wordt gemarkeerd als is_current wanneer deze kan worden geïdentificeerd.",
-            "fields": {"entry_id": {"name": "Configuratie-entry-ID", "description": "Vereist wanneer meer dan één Aegis-account is geconfigureerd."}}
+            "fields": {
+                "entry_id": {
+                    "name": "Configuratie-entry-ID",
+                    "description": "Vereist wanneer meer dan één Aegis-account is geconfigureerd."
+                }
+            }
         },
-        "terminate_client_session": {"name": "Accountsessie beëindigen", "description": "Meld het geselecteerde andere apparaat direct af bij het Ajax-account. Verkrijg het sessie-ID via list_client_sessions. De integratie beëindigt nooit haar eigen sessie.", "fields": {"session_id": {"name": "Sessie-ID"}, "confirm": {"name": "Bevestig beëindiging"}, "entry_id": {"name": "Configuratie-entry-ID"}}},
-        "terminate_other_client_sessions": {"name": "Alle andere accountsessies beëindigen", "description": "Meld alle andere apparaten direct af bij het Ajax-account. Dit meldt andere actieve mobiele en desktop-apps van Ajax af. De integratie beëindigt nooit haar eigen sessie.", "fields": {"confirm": {"name": "Bevestig beëindiging"}, "entry_id": {"name": "Configuratie-entry-ID"}}}
+        "terminate_client_session": {
+            "name": "Accountsessie beëindigen",
+            "description": "Meld het geselecteerde andere apparaat direct af bij het Ajax-account. Verkrijg het sessie-ID via list_client_sessions. De integratie beëindigt nooit haar eigen sessie.",
+            "fields": {
+                "session_id": {
+                    "name": "Sessie-ID",
+                    "description": "Session ID returned by list_client_sessions."
+                },
+                "confirm": {
+                    "name": "Bevestig beëindiging",
+                    "description": "Must be true to immediately terminate the selected session."
+                },
+                "entry_id": {
+                    "name": "Configuratie-entry-ID",
+                    "description": "Required when more than one Aegis account is configured."
+                }
+            }
+        },
+        "terminate_other_client_sessions": {
+            "name": "Alle andere accountsessies beëindigen",
+            "description": "Meld alle andere apparaten direct af bij het Ajax-account. Dit meldt andere actieve mobiele en desktop-apps van Ajax af. De integratie beëindigt nooit haar eigen sessie.",
+            "fields": {
+                "confirm": {
+                    "name": "Bevestig beëindiging",
+                    "description": "Must be true to immediately terminate all other sessions."
+                },
+                "entry_id": {
+                    "name": "Configuratie-entry-ID",
+                    "description": "Required when more than one Aegis account is configured."
+                }
+            }
+        }
     },
     "issues": {
         "hub_offline_24h": {
@@ -214,7 +249,23 @@
         },
         "fcm_credentials_invalid": {
             "title": "Pushmeldingen uitgeschakeld - FCM-inloggegevens afgewezen",
-            "description": "Firebase Cloud Messaging-registratie is voor dit account mislukt. De ingestelde FCM Project ID / App ID / API Key / Sender ID komen waarschijnlijk niet overeen met je co-branded Ajax-app, of de API-sleutel is ingetrokken. Push-afhankelijke functies (directe arm/disarm-status, security_event-entiteit, foto-URL's van MotionCam) vallen terug op langzamere polling totdat dit is opgelost. Open het menu Configureren van de integratie om de FCM-inloggegevens opnieuw in te voeren - zie de sectie 'How to obtain FCM credentials' in de README."
+            "fix_flow": {
+                "step": {
+                    "init": {
+                        "title": "Aegis FCM-inloggegevens herstellen",
+                        "description": "Firebase Cloud Messaging-registratie is voor dit account mislukt. De ingestelde FCM Project ID / App ID / API Key / Sender ID komen waarschijnlijk niet overeen met je co-branded Ajax-app, of de API-sleutel is ingetrokken. Push-afhankelijke functies (directe arm/disarm-status, security_event-entiteit, foto-URL's van MotionCam) vallen terug op langzamere polling totdat dit is opgelost. Voer de vier waarden hieronder opnieuw in. De integratie wordt opnieuw geladen en de Repair sluit automatisch als de nieuwe inloggegevens werken; zo niet, dan verschijnt het formulier opnieuw. Zie de sectie 'How to obtain FCM credentials' in de README.",
+                        "data": {
+                            "fcm_project_id": "FCM Project ID",
+                            "fcm_app_id": "FCM App ID",
+                            "fcm_api_key": "FCM API Key",
+                            "fcm_sender_id": "FCM Sender ID"
+                        }
+                    }
+                },
+                "abort": {
+                    "entry_missing": "Het Aegis-account waarvoor deze Repair is aangemaakt, is niet langer geconfigureerd. Niets te herstellen."
+                }
+            }
         },
         "fcm_credentials_malformed": {
             "title": "Pushmeldingen uitgeschakeld — FCM-inloggegevens onjuist ({problem})",
