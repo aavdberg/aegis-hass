@@ -5,6 +5,24 @@ from __future__ import annotations
 import pytest
 
 from custom_components.aegis_ajax import device_handlers
+from custom_components.aegis_ajax.api.models import Device
+from custom_components.aegis_ajax.const import DeviceState
+
+
+def _device(device_type: str) -> Device:
+    return Device(
+        id="device-1",
+        hub_id="hub-1",
+        name="Test device",
+        device_type=device_type,
+        room_id=None,
+        group_id=None,
+        state=DeviceState.ONLINE,
+        malfunctions=0,
+        bypassed=False,
+        statuses={},
+        battery=None,
+    )
 
 
 def test_build_handler_map_rejects_duplicate_device_type(
@@ -18,3 +36,12 @@ def test_build_handler_map_rejects_duplicate_device_type(
         ValueError, match="Duplicate device handler registration for 'duplicate_type'"
     ):
         device_handlers._build_handler_map()
+
+
+@pytest.mark.parametrize("device_type", ["smart_lock", "smart_lock_yale"])
+def test_lock_capability_is_registered(device_type: str) -> None:
+    assert device_handlers.capabilities_for(_device(device_type)).is_lock
+
+
+def test_non_lock_does_not_have_lock_capability() -> None:
+    assert not device_handlers.capabilities_for(_device("door_protect")).is_lock
