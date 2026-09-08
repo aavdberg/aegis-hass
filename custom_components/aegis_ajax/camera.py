@@ -10,6 +10,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from custom_components.aegis_ajax.coordinator import AjaxCobrandedCoordinator
+from custom_components.aegis_ajax.device_handlers import capabilities_for
 from custom_components.aegis_ajax.entity import build_device_info
 
 if TYPE_CHECKING:
@@ -20,18 +21,6 @@ if TYPE_CHECKING:
     from custom_components.aegis_ajax.api.models import Device
 
 _LOGGER = logging.getLogger(__name__)
-
-CAMERA_DEVICE_TYPES = {
-    "motion_cam",
-    "motion_cam_outdoor",
-    "motion_cam_fibra",
-    "motion_cam_phod",
-    "motion_cam_outdoor_phod",
-    "motion_cam_fibra_base",
-}
-
-# Only PhOD (Photo on Demand) models support on-demand photo capture
-PHOD_DEVICE_TYPES = {"motion_cam_phod", "motion_cam_outdoor_phod", "motion_cam_fibra_base"}
 
 
 async def async_setup_entry(
@@ -46,7 +35,7 @@ async def async_setup_entry(
             device_type=device.device_type,
         )
         for device_id, device in coordinator.devices.items()
-        if device.device_type in CAMERA_DEVICE_TYPES
+        if capabilities_for(device).is_camera
     ]
     async_add_entities(entities)
 

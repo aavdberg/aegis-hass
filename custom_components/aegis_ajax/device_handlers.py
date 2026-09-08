@@ -15,6 +15,8 @@ class DeviceCapabilities:
 
     binary_sensor_keys: tuple[str, ...] = ()
     is_lock: bool = False
+    is_camera: bool = False
+    is_phod: bool = False
 
 
 class DeviceHandler(Protocol):
@@ -36,10 +38,15 @@ class StaticDeviceHandler:
         binary_sensor_keys: tuple[str, ...],
         *,
         is_lock: bool = False,
+        is_camera: bool = False,
+        is_phod: bool = False,
     ) -> None:
         self.device_types = frozenset(device_types)
         self._capabilities = DeviceCapabilities(
-            binary_sensor_keys=binary_sensor_keys, is_lock=is_lock
+            binary_sensor_keys=binary_sensor_keys,
+            is_lock=is_lock,
+            is_camera=is_camera,
+            is_phod=is_phod,
         )
 
     def capabilities(self, device: Device) -> DeviceCapabilities:
@@ -115,16 +122,21 @@ _HANDLERS: tuple[DeviceHandler, ...] = (
     ),
     # MotionCam
     StaticDeviceHandler(
+        ("motion_cam", "motion_cam_outdoor", "motion_cam_fibra"),
+        ("motion_detected", "tamper", "delay_when_leaving"),
+        is_camera=True,
+    ),
+    StaticDeviceHandler(
+        ("motion_cam_phod", "motion_cam_outdoor_phod", "motion_cam_fibra_base"),
+        ("motion_detected", "tamper", "delay_when_leaving"),
+        is_camera=True,
+        is_phod=True,
+    ),
+    StaticDeviceHandler(
         (
-            "motion_cam",
-            "motion_cam_outdoor",
-            "motion_cam_fibra",
-            "motion_cam_fibra_base",
             "motion_cam_g3",
             "motion_cam_hd",
-            "motion_cam_phod",
             "motion_cam_phod_fibra",
-            "motion_cam_outdoor_phod",
             "motion_cam_outdoor_two_four_phod",
             "motion_cam_s_phod",
             "motion_cam_s_phod_am",
