@@ -197,8 +197,38 @@
                 }
             }
         },
-        "terminate_client_session": {"name": "Terminate account session", "description": "Immediately log the selected other device out of the Ajax account. Obtain its session ID through list_client_sessions. The integration never terminates its own session.", "fields": {"session_id": {"name": "Session ID"}, "confirm": {"name": "Confirm termination"}, "entry_id": {"name": "Config entry ID"}}},
-        "terminate_other_client_sessions": {"name": "Terminate all other account sessions", "description": "Immediately log all other devices out of the Ajax account. This signs out other active Ajax mobile and desktop apps. The integration never terminates its own session.", "fields": {"confirm": {"name": "Confirm termination"}, "entry_id": {"name": "Config entry ID"}}}
+        "terminate_client_session": {
+            "name": "Terminate account session",
+            "description": "Immediately log the selected other device out of the Ajax account. Obtain its session ID through list_client_sessions. The integration never terminates its own session.",
+            "fields": {
+                "session_id": {
+                    "name": "Session ID",
+                    "description": "Session ID returned by list_client_sessions."
+                },
+                "confirm": {
+                    "name": "Confirm termination",
+                    "description": "Must be true to immediately terminate the selected session."
+                },
+                "entry_id": {
+                    "name": "Config entry ID",
+                    "description": "Required when more than one Aegis account is configured."
+                }
+            }
+        },
+        "terminate_other_client_sessions": {
+            "name": "Terminate all other account sessions",
+            "description": "Immediately log all other devices out of the Ajax account. This signs out other active Ajax mobile and desktop apps. The integration never terminates its own session.",
+            "fields": {
+                "confirm": {
+                    "name": "Confirm termination",
+                    "description": "Must be true to immediately terminate all other sessions."
+                },
+                "entry_id": {
+                    "name": "Config entry ID",
+                    "description": "Required when more than one Aegis account is configured."
+                }
+            }
+        }
     },
     "issues": {
         "hub_offline_24h": {
@@ -219,7 +249,23 @@
         },
         "fcm_credentials_invalid": {
             "title": "Notifiche push disabilitate - credenziali FCM rifiutate",
-            "description": "La registrazione Firebase Cloud Messaging non e riuscita per questo account. I valori FCM Project ID / App ID / API Key / Sender ID configurati probabilmente non corrispondono alla tua app Ajax co-branded, oppure la API key e stata revocata. Le funzionalita basate sul push (stato istantaneo di armato/disarmato, entita security_event, URL delle foto da MotionCam) ripiegheranno su polling piu lento finche non viene corretto. Apri il menu Configura dell'integrazione per reinserire le credenziali FCM - consulta la sezione 'How to obtain FCM credentials' del README."
+            "fix_flow": {
+                "step": {
+                    "init": {
+                        "title": "Riparare le credenziali FCM di Aegis",
+                        "description": "La registrazione Firebase Cloud Messaging non e riuscita per questo account. I valori FCM Project ID / App ID / API Key / Sender ID configurati probabilmente non corrispondono alla tua app Ajax co-branded, oppure la API key e stata revocata. Le funzionalita basate sul push (stato istantaneo di armato/disarmato, entita security_event, URL delle foto da MotionCam) ripiegheranno su polling piu lento finche non viene corretto. Reinserisci i quattro valori qui sotto. L'integrazione verra ricaricata e il Repair si chiudera automaticamente se le nuove credenziali funzionano; in caso contrario il modulo ricomparira. Consulta la sezione 'How to obtain FCM credentials' del README.",
+                        "data": {
+                            "fcm_project_id": "FCM Project ID",
+                            "fcm_app_id": "FCM App ID",
+                            "fcm_api_key": "FCM API Key",
+                            "fcm_sender_id": "FCM Sender ID"
+                        }
+                    }
+                },
+                "abort": {
+                    "entry_missing": "L'account Aegis per cui e stato sollevato questo Repair non e piu configurato. Niente da riparare."
+                }
+            }
         },
         "fcm_credentials_malformed": {
             "title": "Notifiche push disattivate — credenziali FCM malformate ({problem})",

@@ -197,8 +197,38 @@
                 }
             }
         },
-        "terminate_client_session": {"name": "Terminate account session", "description": "Immediately log the selected other device out of the Ajax account. Obtain its session ID through list_client_sessions. The integration never terminates its own session.", "fields": {"session_id": {"name": "Session ID"}, "confirm": {"name": "Confirm termination"}, "entry_id": {"name": "Config entry ID"}}},
-        "terminate_other_client_sessions": {"name": "Terminate all other account sessions", "description": "Immediately log all other devices out of the Ajax account. This signs out other active Ajax mobile and desktop apps. The integration never terminates its own session.", "fields": {"confirm": {"name": "Confirm termination"}, "entry_id": {"name": "Config entry ID"}}}
+        "terminate_client_session": {
+            "name": "Terminate account session",
+            "description": "Immediately log the selected other device out of the Ajax account. Obtain its session ID through list_client_sessions. The integration never terminates its own session.",
+            "fields": {
+                "session_id": {
+                    "name": "Session ID",
+                    "description": "Session ID returned by list_client_sessions."
+                },
+                "confirm": {
+                    "name": "Confirm termination",
+                    "description": "Must be true to immediately terminate the selected session."
+                },
+                "entry_id": {
+                    "name": "Config entry ID",
+                    "description": "Required when more than one Aegis account is configured."
+                }
+            }
+        },
+        "terminate_other_client_sessions": {
+            "name": "Terminate all other account sessions",
+            "description": "Immediately log all other devices out of the Ajax account. This signs out other active Ajax mobile and desktop apps. The integration never terminates its own session.",
+            "fields": {
+                "confirm": {
+                    "name": "Confirm termination",
+                    "description": "Must be true to immediately terminate all other sessions."
+                },
+                "entry_id": {
+                    "name": "Config entry ID",
+                    "description": "Required when more than one Aegis account is configured."
+                }
+            }
+        }
     },
     "issues": {
         "hub_offline_24h": {
@@ -219,7 +249,23 @@
         },
         "fcm_credentials_invalid": {
             "title": "Push oznameni vypnuta - prihlasovaci udaje FCM odmitnuty",
-            "description": "Registrace Firebase Cloud Messaging selhala pro tento ucet. Konfigurovane hodnoty FCM Project ID / App ID / API Key / Sender ID pravdepodobne neodpovidaji vasi co-brandove aplikaci Ajax, nebo byl API klic zneplatnen. Funkce zavisle na pushi (okamzity stav armed/disarmed, entita security_event, URL fotek z MotionCam) prejdou na pomalejsi polling, dokud to nenapravite. Otevrete nabidku Konfigurovat integrace a zadejte znovu prihlasovaci udaje FCM - viz sekce 'How to obtain FCM credentials' v README."
+            "fix_flow": {
+                "step": {
+                    "init": {
+                        "title": "Oprava udaju FCM pro Aegis",
+                        "description": "Registrace Firebase Cloud Messaging selhala pro tento ucet. Funkce zavisle na pushi (okamzity stav armed/disarmed, entita security_event, URL fotek z MotionCam) prejdou na pomalejsi polling, dokud to nenapravite. Zadej znovu vsechny ctyri hodnoty nize. Integrace se znovu nacte a Repair se uzavre automaticky, pokud nove udaje funguji; pokud ne, formular se zobrazi znovu. Viz sekce 'How to obtain FCM credentials' v README.",
+                        "data": {
+                            "fcm_project_id": "FCM Project ID",
+                            "fcm_app_id": "FCM App ID",
+                            "fcm_api_key": "FCM API Key",
+                            "fcm_sender_id": "FCM Sender ID"
+                        }
+                    }
+                },
+                "abort": {
+                    "entry_missing": "Ucet Aegis, pro ktery byl tento Repair vytvoren, jiz neni nakonfigurovan. Neni co opravovat."
+                }
+            }
         },
         "fcm_credentials_malformed": {
             "title": "Push oznameni vypnuta — udaje FCM jsou poskozene ({problem})",

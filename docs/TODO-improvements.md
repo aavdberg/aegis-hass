@@ -18,6 +18,8 @@ _Last reconciled against shipped code: 2026-09-05 (v1.18.0 stable)._
 - ~~Rebrand~~ (v1.0.0) — Aegis for Ajax identity
 - ~~Binary sensors~~ (partial) — glass_break, vibration, external_contact
 - ~~Per-group `alarm_control_panel` for Group/Zone Mode~~ (v1.2.4) — one panel per Ajax security group + whole-house panel for night mode (#84, #86)
+- ~~Account session management~~ (v1.19.0) — list, terminate one, terminate all others, with the lost-confirmation outcome verified rather than guessed (#330, #441, #447, #463, #468)
+- ~~Translation source-of-truth parity~~ (v1.19.0) — `strings.json` regained the keys only the locale files carried, and a test now pins key parity in both directions so a regeneration cannot delete working translations
 - ~~Reauth flow~~ (v1.2.4) — `ConfigEntryAuthFailed` + `async_step_reauth` so HA shows the Reconfigure banner instead of failing silently (#90)
 - ~~HA Repairs~~ (v1.2.4) — `hub_offline_24h`, `hts_chronic_failure`, `fcm_credentials_invalid` (with guided fix flow), `grpcio_version_mismatch` Repair cards (#89)
 - ~~System Health card~~ (v1.2.4) — gRPC reachability, HTS/FCM ratios, pushes received, last push / last poll ages under Settings → System (#91)
@@ -92,7 +94,11 @@ _Last reconciled against shipped code: 2026-09-05 (v1.18.0 stable)._
 **Effort:** Low (1-2 hours) if the data is in a snapshot we already fetch — must add zero Ajax API calls.
 
 ### 3.3 Device Handler Architecture Refactor — tracked in #332
-**Status:** Approach approved with conditions (2026-07-20): start with PR-0+PR-1 (scaffolding + binary_sensor) only, characterization tests (per-`device_type` unique_id snapshot) non-negotiable in the same PR. Gate-lifted notice posted 2026-07-26; contributor said "will look at the weekend" (07-27); check-in with the post-1.16.x context sent 2026-08-09. Ball is with the contributor.
+**Status:** In progress, contributor-driven (@aavdberg). PR-0+PR-1 (`device_handlers.py` scaffolding + `binary_sensor.py`, #461), PR-2 (SmartLock dedupe, #467) and PR-3 (camera / photo-on-demand, #469) are merged and shipped in the `1.19.0` betas. Remaining: PR-4 (`light`, `valve`, `number`, `select`, `event`) and PR-5 (`sensor` electrical / temperature).
+
+**What every remaining PR must carry**, since these conditions have now paid for themselves three times: the characterization fixture is permanent and its coverage test forces a snapshot entry per registered family; a family that was previously *unmapped* gets its neutrality proven by removing the new registration and re-running its snapshot (a fixture entry the PR itself wrote is otherwise circular); each capability must be consumed by the PR that introduces it, which is also what keeps `vulture` quiet; and an entity-layer swap is validated on a real install with a before/after entity-registry census, not an unavailable-count.
+
+**One gap the refactor made visible** (#472): the six camera families and three photo-on-demand families are a subset of the MotionCam families the registry knows, so six MotionCam variants get no camera entity and four with `phod` in their own device-type name get no capture button. Preserved deliberately by #469 — widening it needs a hardware confirmation per family, not an inference from a name.
 
 ### Parked with recorded reasons (see memory / docs/internal)
 - `HtsLifecycleManager` extraction — parked 2026-05-27, revisit triggers documented in `docs/internal/2026-05-27-hts-lifecycle-refactor-parked.md`.
