@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from custom_components.aegis_ajax.const import ALL_EVENT_TYPES, HUB_EVENT_TAG_MAP
+from custom_components.aegis_ajax.api.models import Device
+from custom_components.aegis_ajax.const import ALL_EVENT_TYPES, HUB_EVENT_TAG_MAP, DeviceState
 from custom_components.aegis_ajax.event import (
     AjaxButtonPressEvent,
     AjaxDoorbellEvent,
@@ -429,22 +430,29 @@ class TestAjaxButtonPressEvent:
 
 class TestEventSetup:
     async def test_creates_device_events_for_registered_capabilities(self) -> None:
+        def device(device_id: str, device_type: str) -> Device:
+            return Device(
+                id=device_id,
+                hub_id="hub-1",
+                name=device_id,
+                device_type=device_type,
+                room_id=None,
+                group_id=None,
+                state=DeviceState.ONLINE,
+                malfunctions=0,
+                bypassed=False,
+                statuses={},
+                battery=None,
+            )
+
         coordinator = MagicMock()
         coordinator.spaces = {}
         coordinator.rooms = {}
         coordinator.devices = {
-            "video-doorbell": MagicMock(
-                id="video-doorbell",
-                hub_id="hub-1",
-                device_type="video_edge_doorbell",
-            ),
-            "motion-doorbell": MagicMock(
-                id="motion-doorbell",
-                hub_id="hub-1",
-                device_type="motion_cam_video_doorbell",
-            ),
-            "button": MagicMock(id="button", hub_id="hub-1", device_type="button"),
-            "other": MagicMock(id="other", hub_id="hub-1", device_type="door_protect"),
+            "video-doorbell": device("video-doorbell", "video_edge_doorbell"),
+            "motion-doorbell": device("motion-doorbell", "motion_cam_video_doorbell"),
+            "button": device("button", "button"),
+            "other": device("other", "door_protect"),
         }
         entry = MagicMock(runtime_data=coordinator)
         added: list = []

@@ -94,7 +94,7 @@ class TestBinarySensorCharacterization:
     async def test_new_platform_registration_preserves_unmapped_binary_sensor_shape(
         self, monkeypatch: pytest.MonkeyPatch, device_type: str
     ) -> None:
-        """New platform registrations retain the former tamper-only fallback."""
+        """New registrations retain the former tamper and standard-diagnostics fallback."""
         fixture_data = _load_fixture()
         monkeypatch.delitem(_DEVICE_HANDLERS, device_type)
 
