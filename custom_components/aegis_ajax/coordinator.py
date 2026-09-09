@@ -1238,6 +1238,8 @@ class AjaxCobrandedCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         changed = False
         for device_id, device in list(self.devices.items()):
+            # The const describes a gRPC temperature field; the capability
+            # describes a distinct, authoritative HTS temperature source.
             # Families sourced from HTS 0x02 (sirens #312, Curtain Plus/Base
             # #229) are authoritative there — don't fetch their gRPC board
             # temperature, which is wrong (runs hotter) and a wasted RPC.
