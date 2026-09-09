@@ -170,62 +170,62 @@
             }
         },
         "set_photo_on_demand_mode": {
-            "name": "Set Photo on Demand mode",
-            "description": "Enable or disable Photo on Demand mode on a hub. Two independent channels can be toggled separately — user requests (whether hub users can request photos from the Ajax app) and scenarios (whether scenarios / automations can trigger captures). Leave a field unset to keep its current value. At least one is required.",
+            "name": "Установити режим «Фото на вимогу»",
+            "description": "Увімкніть або вимкніть режим «Фото на вимогу» на хабі. Два незалежні канали можна перемикати окремо: запитати користувачів (чи можуть користувачі хаба запитувати фото з застосунку Ajax) і сценарії (чи можуть сценарії / автоматизації запускати зйомку). Залиште поле незаповненим, щоб зберегти його поточне значення. Потрібне принаймні одне поле.",
             "fields": {
                 "user": {
-                    "name": "User requests",
-                    "description": "When set, enables or disables on-demand photo requests initiated by hub users. Leave unset to keep the current value."
+                    "name": "Запити користувачів",
+                    "description": "Якщо встановлено, вмикає або вимикає запити на фото на вимогу, ініційовані користувачами хаба. Залиште незаповненим, щоб зберегти поточне значення."
                 },
                 "scenario": {
-                    "name": "Scenarios",
-                    "description": "When set, enables or disables Photo on Demand captures triggered by Ajax scenarios / automations. Leave unset to keep the current value."
+                    "name": "Сценарії",
+                    "description": "Якщо встановлено, вмикає або вимикає зйомку «Фото на вимогу», запущену сценаріями / автоматизаціями Ajax. Залиште незаповненим, щоб зберегти поточне значення."
                 },
                 "entity_id": {
-                    "name": "Entity",
-                    "description": "Alarm panel entity for the space whose hub mode to update. If omitted, applies to every configured space."
+                    "name": "Сутність",
+                    "description": "Сутність панелі сигналізації простору, для хаба якого слід оновити режим. Якщо не вказано, застосовується до кожного налаштованого простору."
                 }
             }
         },
         "list_client_sessions": {
-            "name": "List account sessions",
-            "description": "Return active Ajax account sessions for manual inspection on demand. This service calls an internal Ajax endpoint that may rate limit frequent requests; do not poll it in automations. The currently active Aegis session is marked is_current when it can be identified.",
+            "name": "Показати сесії облікового запису",
+            "description": "Повертає активні сесії облікового запису Ajax на вимогу для ручної перевірки. Ця служба викликає внутрішній ендпоінт Ajax, який може обмежувати часті запити; не опитуйте його в автоматизаціях. Поточна активна сесія Aegis позначається як is_current, якщо її можна визначити.",
             "fields": {
                 "entry_id": {
-                    "name": "Config entry ID",
-                    "description": "Required when more than one Aegis account is configured."
+                    "name": "Ідентифікатор запису конфігурації",
+                    "description": "Потрібно, якщо налаштовано більше одного облікового запису Aegis."
                 }
             }
         },
         "terminate_client_session": {
-            "name": "Terminate account session",
-            "description": "Immediately log the selected other device out of the Ajax account. Obtain its session ID through list_client_sessions. The integration never terminates its own session.",
+            "name": "Завершити сесію облікового запису",
+            "description": "Негайно вийти з облікового запису Ajax на вибраному іншому пристрої. Отримайте ідентифікатор його сесії через list_client_sessions. Інтеграція ніколи не завершує власну сесію.",
             "fields": {
                 "session_id": {
-                    "name": "Session ID",
-                    "description": "Session ID returned by list_client_sessions."
+                    "name": "Ідентифікатор сесії",
+                    "description": "Ідентифікатор сесії, повернений list_client_sessions."
                 },
                 "confirm": {
-                    "name": "Confirm termination",
-                    "description": "Must be true to immediately terminate the selected session."
+                    "name": "Підтвердити завершення",
+                    "description": "Має бути true, щоб негайно завершити вибрану сесію."
                 },
                 "entry_id": {
-                    "name": "Config entry ID",
-                    "description": "Required when more than one Aegis account is configured."
+                    "name": "Ідентифікатор запису конфігурації",
+                    "description": "Потрібно, якщо налаштовано більше одного облікового запису Aegis."
                 }
             }
         },
         "terminate_other_client_sessions": {
-            "name": "Terminate all other account sessions",
-            "description": "Immediately log all other devices out of the Ajax account. This signs out other active Ajax mobile and desktop apps. The integration never terminates its own session.",
+            "name": "Завершити всі інші сесії облікового запису",
+            "description": "Негайно вийти з облікового запису Ajax на всіх інших пристроях. Це завершує сеанси в інших активних мобільних і настільних застосунках Ajax. Інтеграція ніколи не завершує власну сесію.",
             "fields": {
                 "confirm": {
-                    "name": "Confirm termination",
-                    "description": "Must be true to immediately terminate all other sessions."
+                    "name": "Підтвердити завершення",
+                    "description": "Має бути true, щоб негайно завершити всі інші сесії."
                 },
                 "entry_id": {
-                    "name": "Config entry ID",
-                    "description": "Required when more than one Aegis account is configured."
+                    "name": "Ідентифікатор запису конфігурації",
+                    "description": "Потрібно, якщо налаштовано більше одного облікового запису Aegis."
                 }
             }
         }
