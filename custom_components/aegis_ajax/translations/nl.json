@@ -183,7 +183,7 @@
                 },
                 "entity_id": {
                     "name": "Entiteit",
-                    "description": "Alarmpaneel-entiteit voor de ruimte waarvan de hubmodus moet worden bijgewerkt. Indien weggelaten, geldt dit voor elke geconfigureerde ruimte."
+                    "description": "Alarmpaneelentiteit voor de ruimte waarvan de hubmodus moet worden bijgewerkt. Indien weggelaten, geldt dit voor elke geconfigureerde ruimte."
                 }
             }
         },
@@ -207,7 +207,7 @@
                 },
                 "confirm": {
                     "name": "Bevestig beëindiging",
-                    "description": "Moet true zijn om de geselecteerde sessie direct te beëindigen."
+                    "description": "Moet op true staan om de geselecteerde sessie direct te beëindigen."
                 },
                 "entry_id": {
                     "name": "Configuratie-entry-ID",
@@ -221,7 +221,7 @@
             "fields": {
                 "confirm": {
                     "name": "Bevestig beëindiging",
-                    "description": "Moet true zijn om alle andere sessies direct te beëindigen."
+                    "description": "Moet op true staan om alle andere sessies direct te beëindigen."
                 },
                 "entry_id": {
                     "name": "Configuratie-entry-ID",
