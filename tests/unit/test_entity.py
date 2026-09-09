@@ -64,6 +64,22 @@ class TestBuildDeviceInfo:
         assert "via_device_id" not in info
         assert "via_device" not in info
 
+    def test_video_edge_channel_has_no_self_via_link_on_new_ha(self) -> None:
+        # Video Edge channels have no hub-side parent; their parser uses the
+        # channel id as hub_id. Passing its own registered id as via_device_id
+        # makes HA reject the child device as its own parent (#489).
+        with patch("custom_components.aegis_ajax.entity._VIA_DEVICE_ID_SUPPORTED", True):
+            info = build_device_info(
+                _make_device(
+                    device_type="video_edge_turret",
+                    device_id="camera-1",
+                    hub_id="camera-1",
+                ),
+                via_device_id="reg-camera-1",
+            )
+        assert "via_device_id" not in info
+        assert "via_device" not in info
+
     def test_non_hub_device_keeps_identifier_link_on_old_ha(self) -> None:
         # Before 2026.8 `DeviceInfo` has no `via_device_id` key and passing one
         # is a TypeError inside HA, so the identifier tuple stays in use there.
@@ -73,6 +89,19 @@ class TestBuildDeviceInfo:
             )
         assert info["via_device"] == (DOMAIN, "HUB7")
         assert "via_device_id" not in info
+
+    def test_video_edge_channel_has_no_self_via_link_on_old_ha(self) -> None:
+        with patch("custom_components.aegis_ajax.entity._VIA_DEVICE_ID_SUPPORTED", False):
+            info = build_device_info(
+                _make_device(
+                    device_type="video_edge_turret",
+                    device_id="camera-1",
+                    hub_id="camera-1",
+                ),
+                via_device_id="reg-camera-1",
+            )
+        assert "via_device_id" not in info
+        assert "via_device" not in info
 
     def test_hub_device_has_no_via_link(self) -> None:
         for supported in (True, False):

@@ -99,7 +99,10 @@ def build_device_info(
         ),
         serial_number=device.id,
     )
-    if not is_hub:
+    # Video Edge channels have no Ajax hub parent. Their parser deliberately
+    # uses their own id as `hub_id`, so linking them through that id would make
+    # the HA device entry its own parent (#489).
+    if not is_hub and device.hub_id != device.id:
         info.update(cast("DeviceInfo", via_device_fields(device.hub_id, via_device_id)))
     if rooms and device.room_id:
         room = rooms.get(device.room_id) if isinstance(rooms, dict) else None
