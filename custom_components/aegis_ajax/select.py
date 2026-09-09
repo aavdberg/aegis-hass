@@ -22,12 +22,12 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from custom_components.aegis_ajax.api.models import DeviceCommand
 from custom_components.aegis_ajax.const import (
-    SIREN_DEVICE_TYPES,
     SIREN_VOLUME_LEVEL_KEY,
     SIREN_VOLUME_LEVEL_VALUES,
     SIREN_VOLUME_LEVELS,
 )
 from custom_components.aegis_ajax.coordinator import AjaxCobrandedCoordinator
+from custom_components.aegis_ajax.device_handlers import capabilities_for
 from custom_components.aegis_ajax.entity import async_send_device_command, build_device_info
 
 if TYPE_CHECKING:
@@ -47,7 +47,7 @@ async def async_setup_entry(
     entities: list[SelectEntity] = [
         AjaxSirenVolumeSelect(coordinator=coordinator, device_id=device_id)
         for device_id, device in coordinator.devices.items()
-        if device.device_type in SIREN_DEVICE_TYPES
+        if capabilities_for(device).has_siren_settings
     ]
     async_add_entities(entities)
 

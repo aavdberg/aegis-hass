@@ -9,6 +9,7 @@ from custom_components.aegis_ajax.event import (
     AjaxButtonPressEvent,
     AjaxDoorbellEvent,
     AjaxSecurityEvent,
+    async_setup_entry,
 )
 
 
@@ -424,3 +425,34 @@ class TestAjaxButtonPressEvent:
         entity = self._make_button_entity()
         assert entity._attr_device_info is not None
         assert ("aegis_ajax", "313E5F32") in entity._attr_device_info["identifiers"]
+
+
+class TestEventSetup:
+    async def test_creates_device_events_for_registered_capabilities(self) -> None:
+        coordinator = MagicMock()
+        coordinator.spaces = {}
+        coordinator.rooms = {}
+        coordinator.devices = {
+            "video-doorbell": MagicMock(
+                id="video-doorbell",
+                hub_id="hub-1",
+                device_type="video_edge_doorbell",
+            ),
+            "motion-doorbell": MagicMock(
+                id="motion-doorbell",
+                hub_id="hub-1",
+                device_type="motion_cam_video_doorbell",
+            ),
+            "button": MagicMock(id="button", hub_id="hub-1", device_type="button"),
+            "other": MagicMock(id="other", hub_id="hub-1", device_type="door_protect"),
+        }
+        entry = MagicMock(runtime_data=coordinator)
+        added: list = []
+
+        await async_setup_entry(MagicMock(), entry, added.extend)
+
+        assert {entity.unique_id for entity in added} == {
+            "aegis_ajax_video-doorbell_doorbell_event",
+            "aegis_ajax_motion-doorbell_doorbell_event",
+            "aegis_ajax_button_button_press_event",
+        }

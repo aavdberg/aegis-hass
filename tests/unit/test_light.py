@@ -6,12 +6,28 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from custom_components.aegis_ajax.light import LIGHT_DEVICE_TYPES, AjaxLight
+from custom_components.aegis_ajax.api.models import Device
+from custom_components.aegis_ajax.const import DeviceState
+from custom_components.aegis_ajax.device_handlers import capabilities_for
+from custom_components.aegis_ajax.light import AjaxLight
 
 
 class TestLightDeviceTypes:
     def test_dimmer_is_light(self) -> None:
-        assert "light_switch_dimmer" in LIGHT_DEVICE_TYPES
+        device = Device(
+            id="d1",
+            hub_id="h1",
+            name="Dimmer",
+            device_type="light_switch_dimmer",
+            room_id=None,
+            group_id=None,
+            state=DeviceState.ONLINE,
+            malfunctions=0,
+            bypassed=False,
+            statuses={},
+            battery=None,
+        )
+        assert capabilities_for(device).is_light
 
 
 class TestAjaxLight:

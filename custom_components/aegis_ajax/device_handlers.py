@@ -17,6 +17,11 @@ class DeviceCapabilities:
     is_lock: bool = False
     is_camera: bool = False
     is_phod: bool = False
+    is_light: bool = False
+    is_valve: bool = False
+    has_siren_settings: bool = False
+    has_doorbell_event: bool = False
+    has_button_press_event: bool = False
 
 
 class DeviceHandler(Protocol):
@@ -40,6 +45,11 @@ class StaticDeviceHandler:
         is_lock: bool = False,
         is_camera: bool = False,
         is_phod: bool = False,
+        is_light: bool = False,
+        is_valve: bool = False,
+        has_siren_settings: bool = False,
+        has_doorbell_event: bool = False,
+        has_button_press_event: bool = False,
     ) -> None:
         self.device_types = frozenset(device_types)
         self._capabilities = DeviceCapabilities(
@@ -47,6 +57,11 @@ class StaticDeviceHandler:
             is_lock=is_lock,
             is_camera=is_camera,
             is_phod=is_phod,
+            is_light=is_light,
+            is_valve=is_valve,
+            has_siren_settings=has_siren_settings,
+            has_doorbell_event=has_doorbell_event,
+            has_button_press_event=has_button_press_event,
         )
 
     def capabilities(self, device: Device) -> DeviceCapabilities:
@@ -142,22 +157,30 @@ _HANDLERS: tuple[DeviceHandler, ...] = (
             "motion_cam_s_phod_am",
             "motion_cam_superior_phod",
             "motion_cam_video_base",
-            "motion_cam_video_doorbell",
             "motion_cam_video_indoor",
         ),
         ("motion_detected", "tamper", "delay_when_leaving"),
+    ),
+    StaticDeviceHandler(
+        ("motion_cam_video_doorbell",),
+        ("motion_detected", "tamper", "delay_when_leaving"),
+        has_doorbell_event=True,
     ),
     # VideoEdge
     StaticDeviceHandler(
         (
             "video_edge_bullet",
-            "video_edge_doorbell",
             "video_edge_indoor",
             "video_edge_minidome",
             "video_edge_turret",
             "video_edge_unknown",
         ),
         ("motion_detected", "tamper"),
+    ),
+    StaticDeviceHandler(
+        ("video_edge_doorbell",),
+        ("motion_detected", "tamper"),
+        has_doorbell_event=True,
     ),
     # CombiProtect
     StaticDeviceHandler(
@@ -232,7 +255,7 @@ _HANDLERS: tuple[DeviceHandler, ...] = (
         ("leak_protect",),
         ("leak_detected", "tamper"),
     ),
-    # Sirens
+    # Sirens with writable common_siren_part settings
     StaticDeviceHandler(
         (
             "home_siren",
@@ -240,7 +263,6 @@ _HANDLERS: tuple[DeviceHandler, ...] = (
             "home_siren_fibra",
             "home_siren_g3",
             "street_siren",
-            "street_siren_plus",
             "street_siren_fibra",
             "street_siren_plus_fibra",
             "street_siren_plus_g3",
@@ -250,8 +272,15 @@ _HANDLERS: tuple[DeviceHandler, ...] = (
             "street_siren_double_deck_fibra",
         ),
         ("tamper",),
+        has_siren_settings=True,
     ),
-    # ReX / ReX 2 / LifeQuality / WaterStop — explicit no-capability handlers (#332)
+    # This legacy family has the same binary-sensor surface, but no writable
+    # common_siren_part settings and must remain outside the siren platforms.
+    StaticDeviceHandler(
+        ("street_siren_plus",),
+        ("tamper",),
+    ),
+    # ReX / ReX 2 / LifeQuality — explicit no-capability handlers (#332)
     StaticDeviceHandler(
         (
             "rex",
@@ -260,10 +289,13 @@ _HANDLERS: tuple[DeviceHandler, ...] = (
             "range_extender_2",
             "life_quality",
             "life_quality_plus",
-            "water_stop",
-            "water_stop_base",
         ),
         (),
+    ),
+    StaticDeviceHandler(
+        ("water_stop", "water_stop_base"),
+        (),
+        is_valve=True,
     ),
     StaticDeviceHandler(
         ("range_extender_2_fire",),
@@ -326,6 +358,18 @@ _HANDLERS: tuple[DeviceHandler, ...] = (
             "hub_superior",
         ),
         ("gsm_connected", "lid_opened"),
+    ),
+    # Device families that were previously unmapped. Their tamper-only
+    # binary-sensor behavior is made explicit before adding platform entities.
+    StaticDeviceHandler(
+        ("light_switch_dimmer",),
+        ("tamper",),
+        is_light=True,
+    ),
+    StaticDeviceHandler(
+        ("button",),
+        ("tamper",),
+        has_button_press_event=True,
     ),
 )
 

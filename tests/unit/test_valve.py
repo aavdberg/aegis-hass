@@ -13,7 +13,8 @@ from custom_components.aegis_ajax.const import (
     DeviceState,
     SecurityState,
 )
-from custom_components.aegis_ajax.valve import VALVE_DEVICE_TYPES, AjaxValve
+from custom_components.aegis_ajax.device_handlers import capabilities_for
+from custom_components.aegis_ajax.valve import AjaxValve
 
 
 def _make_device(device_type: str = "water_stop", **status_overrides: Any) -> Device:  # noqa: ANN401
@@ -55,12 +56,12 @@ def _make_coordinator(device: Device) -> MagicMock:
 
 class TestValveDeviceTypes:
     def test_water_stop_in_valve_types(self) -> None:
-        assert "water_stop" in VALVE_DEVICE_TYPES
+        assert capabilities_for(_make_device("water_stop")).is_valve
 
     def test_water_stop_base_in_valve_types(self) -> None:
         # `water_stop_base` is the Fibra (wired) sibling — same channel
         # status shape, same parser path, must surface a valve entity too.
-        assert "water_stop_base" in VALVE_DEVICE_TYPES
+        assert capabilities_for(_make_device("water_stop_base")).is_valve
 
 
 class TestAjaxValveState:

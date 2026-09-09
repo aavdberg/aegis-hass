@@ -1,4 +1,44 @@
 {
+  "button": [
+    {
+      "unique_id": "aegis_ajax_test_device_tamper",
+      "device_class": "tamper",
+      "entity_category": null,
+      "enabled_by_default": true
+    },
+    {
+      "unique_id": "aegis_ajax_test_device_connectivity",
+      "device_class": "connectivity",
+      "entity_category": "diagnostic",
+      "enabled_by_default": false
+    },
+    {
+      "unique_id": "aegis_ajax_test_device_problem",
+      "device_class": "problem",
+      "entity_category": "diagnostic",
+      "enabled_by_default": false
+    }
+  ],
+  "light_switch_dimmer": [
+    {
+      "unique_id": "aegis_ajax_test_device_tamper",
+      "device_class": "tamper",
+      "entity_category": null,
+      "enabled_by_default": true
+    },
+    {
+      "unique_id": "aegis_ajax_test_device_connectivity",
+      "device_class": "connectivity",
+      "entity_category": "diagnostic",
+      "enabled_by_default": false
+    },
+    {
+      "unique_id": "aegis_ajax_test_device_problem",
+      "device_class": "problem",
+      "entity_category": "diagnostic",
+      "enabled_by_default": false
+    }
+  ],
   "door_protect": [
     {
       "unique_id": "aegis_ajax_test_device_door_opened",
