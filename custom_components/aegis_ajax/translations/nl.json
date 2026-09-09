@@ -170,20 +170,20 @@
             }
         },
         "set_photo_on_demand_mode": {
-            "name": "Set Photo on Demand mode",
-            "description": "Enable or disable Photo on Demand mode on a hub. Two independent channels can be toggled separately — user requests (whether hub users can request photos from the Ajax app) and scenarios (whether scenarios / automations can trigger captures). Leave a field unset to keep its current value. At least one is required.",
+            "name": "Modus Foto op aanvraag instellen",
+            "description": "Schakel de modus Foto op aanvraag op een hub in of uit. Twee onafhankelijke kanalen kunnen afzonderlijk worden geschakeld: gebruikersverzoeken (of hubgebruikers vanuit de Ajax-app foto's kunnen aanvragen) en scenario's (of scenario's/automatiseringen opnamen kunnen starten). Laat een veld leeg om de huidige waarde te behouden. Ten minste één veld is vereist.",
             "fields": {
                 "user": {
-                    "name": "User requests",
-                    "description": "When set, enables or disables on-demand photo requests initiated by hub users. Leave unset to keep the current value."
+                    "name": "Gebruikersverzoeken",
+                    "description": "Schakelt, indien ingesteld, fotoverzoeken op aanvraag van hubgebruikers in of uit. Laat leeg om de huidige waarde te behouden."
                 },
                 "scenario": {
-                    "name": "Scenarios",
-                    "description": "When set, enables or disables Photo on Demand captures triggered by Ajax scenarios / automations. Leave unset to keep the current value."
+                    "name": "Scenario's",
+                    "description": "Schakelt, indien ingesteld, Foto op aanvraag-opnamen die door Ajax-scenario's/-automatiseringen worden gestart in of uit. Laat leeg om de huidige waarde te behouden."
                 },
                 "entity_id": {
-                    "name": "Entity",
-                    "description": "Alarm panel entity for the space whose hub mode to update. If omitted, applies to every configured space."
+                    "name": "Entiteit",
+                    "description": "Alarmpaneel-entiteit voor de ruimte waarvan de hubmodus moet worden bijgewerkt. Indien weggelaten, geldt dit voor elke geconfigureerde ruimte."
                 }
             }
         },
@@ -203,15 +203,15 @@
             "fields": {
                 "session_id": {
                     "name": "Sessie-ID",
-                    "description": "Session ID returned by list_client_sessions."
+                    "description": "Sessie-ID dat door list_client_sessions is teruggegeven."
                 },
                 "confirm": {
                     "name": "Bevestig beëindiging",
-                    "description": "Must be true to immediately terminate the selected session."
+                    "description": "Moet true zijn om de geselecteerde sessie direct te beëindigen."
                 },
                 "entry_id": {
                     "name": "Configuratie-entry-ID",
-                    "description": "Required when more than one Aegis account is configured."
+                    "description": "Vereist wanneer meer dan één Aegis-account is geconfigureerd."
                 }
             }
         },
@@ -221,11 +221,11 @@
             "fields": {
                 "confirm": {
                     "name": "Bevestig beëindiging",
-                    "description": "Must be true to immediately terminate all other sessions."
+                    "description": "Moet true zijn om alle andere sessies direct te beëindigen."
                 },
                 "entry_id": {
                     "name": "Configuratie-entry-ID",
-                    "description": "Required when more than one Aegis account is configured."
+                    "description": "Vereist wanneer meer dan één Aegis-account is geconfigureerd."
                 }
             }
         }
