@@ -291,7 +291,7 @@ _HANDLERS: tuple[DeviceHandler, ...] = (
     # `street_siren_plus` is a siren, but its oneof case is missing from the
     # HubDevice proto, so its settings are unreadable and `number` / `select`
     # would sit permanently empty. Same binary sensors, no settings entities —
-    # see SIREN_DEVICE_TYPES in const.py.
+    # see the `has_siren_settings` capability.
     StaticDeviceHandler(
         ("street_siren_plus",),
         ("tamper",),

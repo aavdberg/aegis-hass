@@ -16,7 +16,6 @@ from homeassistant.util import dt as dt_util
 from custom_components.aegis_ajax import notification_event_parser
 from custom_components.aegis_ajax.const import (
     DOMAIN,
-    DOORBELL_DEVICE_TYPES,
     DOORBELL_EVENT_TYPE,
     FCM_REJECTED_STORAGE_KEY,
     FCM_STORAGE_VERSION,
@@ -26,6 +25,7 @@ from custom_components.aegis_ajax.const import (
     RAW_TAG_TO_SECURITY_STATE,
     SECURITY_STATE_EVENT_TYPES,
 )
+from custom_components.aegis_ajax.device_handlers import capabilities_for
 from custom_components.aegis_ajax.notification_fcm_guard import (
     attach_fcm_log_guard,
     install_fcm_decrypt_guard,
@@ -1266,9 +1266,7 @@ class AjaxNotificationListener:
 
         if resolved is None and event_type == DOORBELL_EVENT_TYPE:
             doorbells = [
-                dev_id
-                for dev_id, dev in devices.items()
-                if getattr(dev, "device_type", None) in DOORBELL_DEVICE_TYPES
+                dev_id for dev_id, dev in devices.items() if capabilities_for(dev).is_doorbell
             ]
             if len(doorbells) == 1:
                 resolved = doorbells[0]
